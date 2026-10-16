@@ -997,6 +997,12 @@ Exactly one case survives: the **sidebar**. Below `lg` it is a focus-trapping, s
 
 That one case is the entire justification for `src/config/breakpoints.ts`. It holds the breakpoint numbers, `minWidthQuery`, and the name of that boundary — nothing else. Because those numbers duplicate the `--breakpoint-*` tokens, `scripts/check-units.mjs` parses both files and fails the lint step when they drift in either direction, or when a breakpoint is declared in `px`. Duplication with an enforced check is defensible; duplication with a comment asserting the two "cannot disagree" is not.
 
+All six are produced by one `createSafeContext(name)` factory, so the "throws outside its provider" rule of 12.3 is structural rather than restated six times. Durable preferences — density, sidebar width, collapsed state — go through `lib/uiStorage`, kept separate from `PersistenceAdapter` because losing a preference is an annoyance rather than data loss, and every failure path there degrades silently.
+
+`ToastContext` is outermost in `AppProviders`, since the view-model hooks surface every failed mutation through it and anything that can fail must sit inside it. The rest are order-independent.
+
+`ConfirmContext` and `ToastContext` are **headless**: they own the promise and the queue, and the components that render them are design-system work in Phase 4. That split means the behavioural contract — a second confirm cancelling the first, a retry offered only for retryable errors, the polite live region — is testable before any styling exists. 27 tests cover it.
+
 `ConfirmContext` exposing a promise is what keeps destructive flows readable at the call site:
 
 ```ts

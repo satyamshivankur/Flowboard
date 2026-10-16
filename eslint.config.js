@@ -113,19 +113,44 @@ const LAYER_RULES = {
 
   // ------------------------------------------------------------------- views
   views: {
-    files: ['src/views/**/*.{ts,tsx}', 'src/contexts/**/*.{ts,tsx}'],
+    files: ['src/views/**/*.{ts,tsx}'],
     zones: [
       {
-        target: ['./src/views', './src/contexts'],
+        target: './src/views',
         from: './src/controllers/store.ts',
         message:
           'Views read through controllers/hooks, never the store directly.',
       },
       {
-        target: ['./src/views', './src/contexts'],
+        target: './src/views',
         from: './src/controllers/slices',
         message:
           'Views read through controllers/hooks, never a slice directly.',
+      },
+    ],
+  },
+
+  /*
+   * ---------------------------------------------------------------- contexts
+   *
+   * Contexts carry presentation concerns and must not reach into the Controller
+   * at all. The one permitted edge between the two layers runs the other way:
+   * `controllers/hooks/useAction` imports ToastContext to funnel failed
+   * results. Keeping this one-directional is what stops a cycle forming.
+   */
+  contexts: {
+    files: ['src/contexts/**/*.{ts,tsx}'],
+    zones: [
+      {
+        target: './src/contexts',
+        from: './src/controllers',
+        message:
+          'Contexts must not import the Controller. The permitted edge is controllers/hooks/useAction → ToastContext, never the reverse.',
+      },
+      {
+        target: './src/contexts',
+        from: './src/views',
+        message: 'Contexts must not import views.',
       },
     ],
   },
@@ -279,6 +304,22 @@ export default defineConfig([
    */
   {
     files: ['src/config/**/*.ts'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
+  /*
+   * Each context file exports a provider component *and* its consumer hook.
+   * That co-location is the point — the hook and the Provider share one
+   * Context object, and splitting them would mean a third module per context
+   * holding `createContext` just to satisfy a dev-server optimisation.
+   *
+   * The only cost is that editing a provider file triggers a full reload rather
+   * than a fast refresh. For six files that is not worth 12 more.
+   */
+  {
+    files: ['src/contexts/**/*.{ts,tsx}'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

@@ -208,33 +208,38 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 7.4, 7.7, 7.8, 7.9, 7.10_
 - [x] 8.6 `useContainerActions`
   - _Requirements: 1.4, 6.5_
-- [ ] 8.7 Route every failed `Result` through `ToastContext` inside the hooks
+- [x] 8.7 Route every failed `Result` through `ToastContext` inside the hooks
   - Single error-surfacing path; no component repeats it
-  - **Deferred to Phase 3**, which is where `ToastContext` is built. The hooks currently return `Result` to their caller; wiring is one wrapper per mutation callback once the provider exists. Listed here rather than silently moved, because an unwired error path is the kind of gap that gets forgotten
+  - Delivered in Phase 3 as `controllers/hooks/useAction`, once `ToastContext` existed. `run(operation, options)` turns any failed `Result` into a toast, offers retry only for retryable errors, and still returns the `Result` so a caller that needs to branch on success can
+  - This is the one permitted Controller → Context edge; the boundary lint forbids the reverse, so no cycle can form
   - _Requirements: 14.4, 14.5_
 
 ---
 
 ## Phase 3 — Context layer
 
-- [ ] 9. Implement the seven Contexts
-- [ ] 9.1 `ToastContext` — queue, `push`, `dismiss`, auto-dismiss timeout, optional retry action, polite live region
+- [x] 9. Implement the seven Contexts
+- [x] 9.1 `ToastContext` — queue, `push`, `dismiss`, auto-dismiss timeout, optional retry action, polite live region
   - _Requirements: 12.2, 14.4, 14.6, 17.6_
-- [ ] 9.2 `DensityContext` — comfortable/compact, persisted, applied via `data-density` on the shell
+- [x] 9.2 `DensityContext` — comfortable/compact, persisted, applied via `data-density` on the shell
   - _Requirements: 12.2, 16.3_
-- [ ] 9.3 `NavigationContext` — `selectedListId`, `view`, `openTaskId` and setters; ids only, never entities
+- [x] 9.3 `NavigationContext` — `selectedListId`, `view`, `openTaskId` and setters; ids only, never entities
   - _Requirements: 12.2, 12.6, 6.3_
-- [ ] 9.4 `ConfirmContext` — promise-based `confirm(opts)` backed by `ConfirmDialog`
+- [x] 9.4 `ConfirmContext` — promise-based `confirm(opts)` backed by `ConfirmDialog`
   - _Requirements: 12.2, 14.9_
-- [ ] 9.5 `SimulationContext` — settings, setters, `failNext()`, publishing to the transport
+- [x] 9.5 `SimulationContext` — settings, setters, `failNext()`, publishing to the transport
   - _Requirements: 9.7, 9.8, 12.2_
-- [ ] 9.6 `SidebarContext` — `collapsed`, `width`, `expandedIds`, togglers, session-persisted
+- [x] 9.6 `SidebarContext` — `collapsed`, `width`, `expandedIds`, togglers, session-persisted
   - _Requirements: 6.2, 6.6, 12.2, 16.2_
-- [ ] 9.7 Add the sidebar's modal/static boundary to `SidebarContext`
+- [x] 9.6.1 Add `createSafeContext` and the UI-preference helper
+  - One factory producing a Provider plus a typed hook that throws outside it, so the rule in 12.3 is structural rather than restated six times
+  - `lib/uiStorage` for density, sidebar width and collapsed state — deliberately separate from `PersistenceAdapter`, which carries domain state. Losing a preference is an annoyance, not data loss, so every failure path there degrades silently
+  - _Requirements: 12.3, 16.2, 16.3_
+- [x] 9.7 Add the sidebar's modal/static boundary to `SidebarContext`
   - An `isModal` flag from a single `matchMedia(minWidthQuery('lg'))` subscription, closing the sheet when the boundary is crossed so it cannot persist as an invisible focus trap
   - This is the only JavaScript breakpoint observation in the app. The board, list view, drawer, dnd-kit sensors, tooltips and density toggle are all handled by Tailwind variants — confirm each stays that way rather than reaching for this flag
   - _Requirements: 12.7, 20.7.1_
-- [ ] 9.8 Apply the shared Context rules and compose `AppProviders`
+- [x] 9.8 Apply the shared Context rules and compose `AppProviders`
   - Typed `useX()` hook per Context that throws outside its provider, `useMemo`-wrapped values, one explicit provider composition
   - _Requirements: 12.3, 12.4, 12.5_
 
