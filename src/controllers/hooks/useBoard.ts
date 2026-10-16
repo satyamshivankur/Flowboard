@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react";
-import { useShallow } from "zustand/shallow";
 
 import { PRIORITY_CONFIG, type Priority } from "@/config/priorities";
 import type { StatusColorToken } from "@/config/statusCategories";
@@ -148,19 +147,24 @@ export function useBoard(
     listId === null ? false : can(state, scope, "task:update", listId),
   );
 
-  const columns = useStore(
-    useShallow((state): readonly BoardColumnViewModel[] => {
-      if (listId === null) return [];
+  /*
+   * Derived in `useMemo` from the whole store, not mapped inside a
+   * `useShallow` selector — see the note in `useVisibleTree`. Fresh card
+   * objects defeat shallow comparison and send zustand into a render loop.
+   */
+  const state = useStore();
 
-      return selectBoardColumns(state, scope, listId).map((column) => ({
-        statusId: column.status.id,
-        name: column.status.name,
-        colorToken: column.status.color,
-        count: column.count,
-        tasks: column.tasks.map((task) => buildTaskCard(state, task, now)),
-      }));
-    }),
-  );
+  const columns = useMemo((): readonly BoardColumnViewModel[] => {
+    if (listId === null) return [];
+
+    return selectBoardColumns(state, scope, listId).map((column) => ({
+      statusId: column.status.id,
+      name: column.status.name,
+      colorToken: column.status.color,
+      count: column.count,
+      tasks: column.tasks.map((task) => buildTaskCard(state, task, now)),
+    }));
+  }, [state, scope, listId, now]);
 
   const onMoveTask = useCallback(
     (taskId: string, toStatusId: string, toIndex: number) =>

@@ -27,8 +27,19 @@ afterEach(() => {
  * override it when asserting responsive behaviour.
  */
 function stubMatchMedia(query: string): MediaQueryList {
+  /*
+   * Desktop with a fine pointer. The `min-width` case matters: without it,
+   * `SidebarContext` reports `isModal` and the sidebar renders as a *closed*
+   * sheet, so every shell test would look for a tree that is not in the DOM.
+   * Tests asserting mobile behaviour override this with their own stub.
+   */
+  const matches =
+    query.includes("min-width") ||
+    query.includes("hover: hover") ||
+    query.includes("pointer: fine");
+
   return {
-    matches: query.includes("hover: hover") || query.includes("pointer: fine"),
+    matches,
     media: query,
     onchange: null,
     addEventListener: () => undefined,
@@ -49,4 +60,35 @@ Object.defineProperty(window, "matchMedia", {
   writable: true,
   configurable: true,
   value: stubMatchMedia,
+});
+
+/**
+ * jsdom implements no `ResizeObserver`, which `ScrollShadow` uses to decide
+ * whether its edge fades apply. Stubbed rather than skipped so the component
+ * mounts and its scroll listener is still exercised.
+ */
+class StubResizeObserver implements ResizeObserver {
+  observe(): void {
+    // No layout in jsdom, so there is nothing to report.
+  }
+
+  unobserve(): void {
+    /* no-op */
+  }
+
+  disconnect(): void {
+    /* no-op */
+  }
+}
+
+Object.defineProperty(window, "ResizeObserver", {
+  writable: true,
+  configurable: true,
+  value: StubResizeObserver,
+});
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+  writable: true,
+  configurable: true,
+  value: StubResizeObserver,
 });

@@ -49,12 +49,19 @@ export function ScrollShadow({
     update();
     element.addEventListener("scroll", update, { passive: true });
 
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
+    /*
+     * Guarded: the fades are an affordance, so losing them where
+     * ResizeObserver is unavailable is strictly better than throwing on mount
+     * and taking the whole sidebar down with it.
+     */
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+
+    observer?.observe(element);
 
     return () => {
       element.removeEventListener("scroll", update);
-      observer.disconnect();
+      observer?.disconnect();
     };
   }, [orientation, children]);
 

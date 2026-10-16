@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react";
-import { useShallow } from "zustand/shallow";
 
 import { ROLE_CONFIG, type Role } from "@/config/capabilities";
 import { roleOf } from "@/model/permissions";
@@ -39,8 +38,15 @@ export function useSession(): SessionViewModel {
   const loadingListId = useStore((state) => state.loadingListId);
   const actions = useStore((state) => state.actions.session);
 
-  const members = useStore(
-    useShallow((state) =>
+  /*
+   * Derived in `useMemo` from the whole store rather than mapped inside a
+   * `useShallow` selector — see the note in `useVisibleTree`. Building fresh
+   * objects in a selector defeats shallow comparison and loops.
+   */
+  const state = useStore();
+
+  const members = useMemo(
+    () =>
       selectWorkspaceMembers(state, scope).map((user) => {
         const role = roleOf(state, scope.workspaceId, user.id) ?? "member";
 
@@ -54,7 +60,7 @@ export function useSession(): SessionViewModel {
           isCurrent: user.id === scope.userId,
         };
       }),
-    ),
+    [state, scope],
   );
 
   const switchUser = useCallback(

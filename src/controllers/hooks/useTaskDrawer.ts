@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react";
-import { useShallow } from "zustand/shallow";
 
 import { PRIORITY_CONFIG, type Priority } from "@/config/priorities";
 import { formatRelative } from "@/lib/date";
@@ -124,8 +123,14 @@ export function useTaskDrawer(
   const actions = useStore((state) => state.actions.task);
   const permissions = usePermissions();
 
-  const data = useStore(
-    useShallow((state) => {
+  /*
+   * Derived in `useMemo` from the whole store — see the note in
+   * `useVisibleTree` for why a mapping `useShallow` selector loops.
+   */
+  const state = useStore();
+
+  const data = useMemo(() => {
+    {
       if (taskId === null) return null;
 
       const task = selectTask(state, scope, taskId);
@@ -169,8 +174,8 @@ export function useTaskDrawer(
           .filter((list) => list.id !== task.primaryListId)
           .map((list) => ({ id: list.id, name: list.name })),
       };
-    }),
-  );
+    }
+  }, [state, scope, taskId]);
 
   const onFieldSave = useCallback(
     (input: UpdateTaskInput) => actions.update(scope, taskId ?? "", input),

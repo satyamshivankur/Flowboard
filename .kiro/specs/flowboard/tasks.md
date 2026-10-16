@@ -298,53 +298,53 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 5 — App chrome
 
-- [ ] 12. Build the shell
-- [ ] 12.1 `AppShell`
+- [x] 12. Build the shell
+- [x] 12.1 `AppShell`
   - `h-dvh overflow-hidden` with independent scroll regions; `data-density` attribute; page itself never scrolls
   - `h-dvh` rather than `h-screen`, so mobile browser chrome does not push fixed affordances out of view
   - Safe-area padding on any bottom-anchored element
   - Single-pane at base, sidebar + content from `lg`
   - _Requirements: 13.7, 16.1, 20.12, 20.13_
-- [ ] 12.2 `TopBar` in a single `h-topbar` row
+- [x] 12.2 `TopBar` in a single `h-topbar` row
   - Base: menu button, truncated list name, search icon, user avatar; `ViewSwitcher` and `DevPanel` in an overflow menu
   - `md`: adds the inline `ViewSwitcher`
   - `lg`: full row with breadcrumbs, `ViewSwitcher`, search, `DevPanel`, `UserSwitcher`
   - _Requirements: 13.7, 16.4, 20.4_
-- [ ] 12.3 `UserSwitcher`
+- [x] 12.3 `UserSwitcher`
   - Avatar, name and role for the current user; switching re-evaluates the tree, board, table and drawer with no reload
   - _Requirements: 8.2, 8.3, 8.14_
-- [ ] 12.4 `DevPanel`
+- [x] 12.4 `DevPanel`
   - Latency range, failure probability, "fail next operation", and "reset to seed"
   - _Requirements: 9.8, 9.11_
-- [ ] 12.5 `Breadcrumbs` with truncation and tooltips
+- [x] 12.5 `Breadcrumbs` with truncation and tooltips
   - Current list name only at base, last two segments at `md`, full path at `lg`
   - _Requirements: 16.6, 20.4_
 
-- [ ] 13. Build the sidebar
-- [ ] 13.1 `SidebarTree` and `TreeItem`
+- [x] 13. Build the sidebar
+- [x] 13.1 `SidebarTree` and `TreeItem`
   - Recursive render from `useVisibleTree`; active list marked; tree ARIA semantics with expanded/selected state
   - _Requirements: 6.1, 6.3, 6.4, 17.3_
-- [ ] 13.2 Expand/collapse persistence across selection and user switching
+- [x] 13.2 Expand/collapse persistence across selection and user switching
   - _Requirements: 6.2_
-- [ ] 13.3 Per-row context menu
+- [x] 13.3 Per-row context menu
   - Rename, create child, archive — each disabled with a reason when the capability check fails
   - _Requirements: 6.5, 8.9, 8.11_
-- [ ] 13.4 Collapse-to-rail and drag-to-resize at `lg` and above
+- [x] 13.4 Collapse-to-rail and drag-to-resize at `lg` and above
   - Both persisted; the resizer's live width is the second documented inline-`style` exception
   - The resizer writes `rem` (`${px / 16}rem`), clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, so even the one dynamic dimension obeys the unit rule
   - _Requirements: 6.6, 13.4, 16.2, 22.1, 22.3_
-- [ ] 13.4.1 Off-canvas sidebar below `lg`
+- [x] 13.4.1 Off-canvas sidebar below `lg`
   - Slide-over built on the `Drawer` primitive, opened from the top-bar menu button, closing on selection, Escape and overlay tap; focus trapped while open and restored on close
   - Tree rows at `h-11` for touch
   - _Requirements: 20.4, 20.9, 17.2_
-- [ ] 13.5 Keyboard navigation — arrows to move and expand/collapse, Enter to select
+- [x] 13.5 Keyboard navigation — arrows to move and expand/collapse, Enter to select
   - _Requirements: 6.7, 17.1_
-- [ ] 13.6 Container reorder and reparent by drag and drop
+- [x] 13.6 Container reorder and reparent by drag and drop
   - Valid-parent and cyclic-move checks enforced in the Controller, with drop targets reflecting validity
   - _Requirements: 1.7, 1.8, 1.9_
-- [ ] 13.7 Inline hint for a space or folder with no visible children
+- [x] 13.7 Inline hint for a space or folder with no visible children
   - _Requirements: 6.8_
-- [ ] 13.8 Tree skeleton on first load
+- [x] 13.8 Tree skeleton on first load
   - _Requirements: 14.1_
 
 ---

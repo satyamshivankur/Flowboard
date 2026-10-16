@@ -5,19 +5,19 @@ import { cn } from "@/lib/cn";
 export interface SegmentedOption<T extends string> {
   readonly value: T;
   readonly label: string;
-  readonly icon?: LucideIcon;
+  readonly icon?: LucideIcon | undefined;
 }
 
 export interface SegmentedControlProps<T extends string> {
   readonly options: readonly SegmentedOption<T>[];
   readonly value: T;
   readonly onChange: (value: T) => void;
-  readonly size?: "sm" | "md";
+  readonly size?: "sm" | "md" | undefined;
   /** Required: the group needs a name for assistive technology. */
   readonly ariaLabel: string;
   /** Hide labels, leaving icons only. Each option keeps its accessible name. */
-  readonly iconOnly?: boolean;
-  readonly className?: string;
+  readonly iconOnly?: boolean | undefined;
+  readonly className?: string | undefined;
 }
 
 /**
@@ -71,7 +71,11 @@ export function SegmentedControl<T extends string>({
             )}
           >
             {Icon && (
-              <Icon className="size-icon-md shrink-0" strokeWidth={1.75} aria-hidden />
+              <Icon
+                className="size-icon-md shrink-0"
+                strokeWidth={1.75}
+                aria-hidden
+              />
             )}
             {!iconOnly && option.label}
           </button>

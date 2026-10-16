@@ -5,28 +5,35 @@ import {
   MenuItems,
 } from "@headlessui/react";
 import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 
+/*
+ * Optional props spell out `| undefined` throughout the design system.
+ * `exactOptionalPropertyTypes` is on — which is what we want in the Model,
+ * where an absent field and an explicit `undefined` genuinely differ — but for
+ * component props a caller passing `undefined` to mean "not set" is ordinary
+ * React, and forcing conditional spreads at every call site buys nothing.
+ */
 export interface MenuItemSpec {
   readonly id: string;
   readonly label: string;
-  readonly icon?: LucideIcon;
-  readonly tone?: "default" | "danger";
-  readonly disabled?: boolean;
+  readonly icon?: LucideIcon | undefined;
+  readonly tone?: "default" | "danger" | undefined;
+  readonly disabled?: boolean | undefined;
   /** Shown when disabled, so a greyed item explains itself (Req 8.11). */
-  readonly disabledReason?: string;
+  readonly disabledReason?: string | undefined;
   readonly onSelect: () => void;
-  readonly separatorBefore?: boolean;
+  readonly separatorBefore?: boolean | undefined;
 }
 
 export interface MenuProps {
   readonly trigger: ReactNode;
   readonly items: readonly MenuItemSpec[];
-  readonly align?: "start" | "end";
-  readonly label?: string;
-  readonly className?: string;
+  readonly align?: "start" | "end" | undefined;
+  readonly label?: string | undefined;
+  readonly className?: string | undefined;
 }
 
 const TONE: Record<NonNullable<MenuItemSpec["tone"]>, string> = {
@@ -50,7 +57,14 @@ export function Menu({
 }: MenuProps) {
   return (
     <HeadlessMenu as="div" className="relative inline-flex">
-      <MenuButton as="div" aria-label={label}>
+      {/*
+        `as={Fragment}` merges the menu's props onto the trigger element itself.
+        Rendering a wrapper instead — `as="div"` — nests the caller's `<button>`
+        inside a `role="button"` div, which is invalid interactive nesting and
+        puts the accessible name on the wrapper rather than on the control the
+        user actually focuses.
+      */}
+      <MenuButton as={Fragment} aria-label={label}>
         {trigger}
       </MenuButton>
 

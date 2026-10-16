@@ -1001,6 +1001,29 @@ All six are produced by one `createSafeContext(name)` factory, so the "throws ou
 
 `ToastContext` is outermost in `AppProviders`, since the view-model hooks surface every failed mutation through it and anything that can fail must sit inside it. The rest are order-independent.
 
+### Deriving collections from the store
+
+Every hook that returns a derived collection subscribes to the **whole** store and derives in `useMemo`, rather than mapping inside a `useShallow` selector:
+
+```ts
+// Loops forever. useShallow compares one level deep, and every element is a
+// freshly built object, so the snapshot is "new" on every render.
+const nodes = useStore(
+  useShallow((s) => selectVisibleTree(s, scope).map(toRow)),
+);
+
+// Correct. The store object's identity changes only when a mutation lands.
+const state = useStore();
+const nodes = useMemo(
+  () => selectVisibleTree(state, scope).map(toRow),
+  [state, scope],
+);
+```
+
+The first form took down `useVisibleTree`, `useSelectedList`, `useBoard`, `useTaskTable`, `useSession` and `useTaskDrawer` simultaneously. The symptom is `Maximum update depth exceeded` thrown from React's `forceStoreRerender`, which points at React rather than at the selector that caused it — and none of the 280 Model and Controller tests touched it, because it only appears once a component subscribes.
+
+The cost of subscribing broadly is that any mutation re-derives every view-model. At this scale that is immaterial, and the alternative — hand-picking stable slices per hook — trades a loop that is caught immediately for staleness bugs that are not.
+
 `ConfirmContext` and `ToastContext` are **headless**: they own the promise and the queue, and the components that render them are design-system work in Phase 4. That split means the behavioural contract — a second confirm cancelling the first, a retry offered only for retryable errors, the polite live region — is testable before any styling exists. 27 tests cover it.
 
 `ConfirmContext` exposing a promise is what keeps destructive flows readable at the call site:
@@ -1345,7 +1368,10 @@ The card is a `group` whose secondary affordances are revealed by hover or focus
 
 Two documented exception lists intersect here:
 
-- **Inline `style`** (13.4, 19.9) — dnd-kit's `transform`/`transition` on sortable items, and the sidebar resizer's live width. Both annotated in code.
+- **Inline `style`** (13.4, 19.9) — dnd-kit's `transform`/`transition` on sortable items, the sidebar resizer's live width, and positioned overlay coordinates. All annotated in code.
+
+  The third one is worth explaining, because it was discovered the hard way. `Tooltip` originally positioned itself `absolute` inside a `relative` wrapper. An absolutely positioned element is clipped by any ancestor with `overflow` set, and **`z-index` cannot escape an overflow clip** — so the tooltip was cut off almost everywhere: tree rows sit inside the sidebar's scroll container, card avatars inside a board column's, and everything inside the shell's `overflow-hidden`. It looked correct only in Storybook, which has no clipping ancestor. The fix is a portal to `document.body` with `position: fixed`, which means the coordinates have to be inline. Any future popover not already handled by Headless UI's anchoring needs the same treatment (13.4.1).
+
 - **`px` units** (22.4) — the sensor activation distance and touch tolerance. These are pointer-movement thresholds in device pixels, not rendered dimensions; expressing a drag threshold in `rem` would make it change with font size, which is meaningless.
 
 The sidebar resizer writes its live width in `rem` (`${px / 16}rem`) rather than `px`, clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, so even the one dynamic dimension in the app obeys the unit rule.

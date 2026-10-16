@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
-import { useShallow } from "zustand/shallow";
 
 import { PAGE_SIZE } from "@/config/limits";
+import type { StatusColorToken } from "@/config/statusCategories";
 import type { Result } from "@/model/result";
 import {
   selectPaginatedRows,
@@ -21,7 +21,8 @@ export interface TaskRowViewModel {
   readonly task: TaskCardViewModel;
   readonly statusId: string;
   readonly statusName: string;
-  readonly statusToken: string;
+  /** Token, not a class — `StatusPill` resolves it through the shared map. */
+  readonly statusToken: StatusColorToken;
   readonly subtasks: readonly TaskRowViewModel[];
 }
 
@@ -57,46 +58,51 @@ export function useTaskTable(
   const isHydrating = useStore((state) => state.isHydrating);
   const loadingListId = useStore((state) => state.loadingListId);
 
-  const { rows, total, hasMore } = useStore(
-    useShallow((state) => {
-      if (listId === null) {
-        return {
-          rows: [] as readonly TaskRowViewModel[],
-          total: 0,
-          hasMore: false,
-        };
-      }
+  /*
+   * Derived in `useMemo` from the whole store, not mapped inside a
+   * `useShallow` selector — see the note in `useVisibleTree`. Fresh row objects
+   * defeat shallow comparison and send zustand into a render loop.
+   */
+  const state = useStore();
 
-      const statuses = selectStatusesForList(state, scope, listId);
-      const statusById = new Map(statuses.map((status) => [status.id, status]));
-
-      const allRows = selectTaskRows(state, scope, listId, sort);
-      const paged = selectPaginatedRows(allRows, page, PAGE_SIZE);
-
-      const toRow = (
-        task: (typeof allRows)[number]["task"],
-      ): TaskRowViewModel => {
-        const status = statusById.get(task.statusId);
-
-        return {
-          task: buildTaskCard(state, task, now),
-          statusId: task.statusId,
-          statusName: status?.name ?? "Unknown",
-          statusToken: status?.color ?? "status-todo",
-          subtasks: [],
-        };
+  const { rows, total, hasMore } = useMemo(() => {
+    if (listId === null) {
+      return {
+        rows: [] as readonly TaskRowViewModel[],
+        total: 0,
+        hasMore: false,
       };
+    }
+
+    const statuses = selectStatusesForList(state, scope, listId);
+    const statusById = new Map(statuses.map((status) => [status.id, status]));
+
+    const allRows = selectTaskRows(state, scope, listId, sort);
+    const paged = selectPaginatedRows(allRows, page, PAGE_SIZE);
+
+    const toRow = (
+      task: (typeof allRows)[number]["task"],
+    ): TaskRowViewModel => {
+      const status = statusById.get(task.statusId);
 
       return {
-        rows: paged.items.map((row) => ({
-          ...toRow(row.task),
-          subtasks: row.subtasks.map(toRow),
-        })),
-        total: paged.total,
-        hasMore: paged.hasMore,
+        task: buildTaskCard(state, task, now),
+        statusId: task.statusId,
+        statusName: status?.name ?? "Unknown",
+        statusToken: status?.color ?? "status-todo",
+        subtasks: [],
       };
-    }),
-  );
+    };
+
+    return {
+      rows: paged.items.map((row) => ({
+        ...toRow(row.task),
+        subtasks: row.subtasks.map(toRow),
+      })),
+      total: paged.total,
+      hasMore: paged.hasMore,
+    };
+  }, [state, scope, listId, sort, page, now]);
 
   const onQuickUpdate = useCallback(
     (taskId: string, input: UpdateTaskInput) =>

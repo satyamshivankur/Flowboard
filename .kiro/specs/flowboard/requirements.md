@@ -385,7 +385,15 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 13.3. The boilerplate `src/App.css` SHALL be deleted and the boilerplate rules in `src/index.css` replaced.
 
-13.4. Inline `style=` SHALL NOT be used for layout or theming. The only permitted uses are transforms and measurements required by dnd-kit and by the resizable sidebar, each annotated in code and listed in the README.
+13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly three, each annotated in code and listed in the README:
+
+| Exception                                                   | Why it cannot be a class                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| dnd-kit's `transform` and `transition` on sortable items    | Recomputed per frame from pointer position                                                                                                                                                                                                                  |
+| The sidebar resizer's live width                            | A user-dragged value, written in `rem` and clamped to the token range                                                                                                                                                                                       |
+| Positioned overlay coordinates — the tooltip's `top`/`left` | A viewport position from `getBoundingClientRect`. Required because an absolutely positioned overlay is clipped by any ancestor with `overflow` set, and `z-index` cannot escape an overflow clip, so such overlays must be portalled and positioned `fixed` |
+
+13.4.1. Any overlay that can appear inside a scrolling or clipping region — tooltips, and any popover not already handled by Headless UI's anchoring — SHALL be rendered in a portal and positioned against the viewport. Rem-derived offsets SHALL be converted against the real root font size rather than an assumed 16px, so overlay spacing scales with the rest of the layout.
 
 13.5. The Tailwind `@theme` block SHALL define a token set covering `colors` (neutral ramp, brand/accent, semantic success/warning/danger/info, five priority tokens, four status tokens), `fontFamily`, `borderRadius`, `boxShadow` and `spacing` extensions.
 

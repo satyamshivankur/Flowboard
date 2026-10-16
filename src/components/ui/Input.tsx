@@ -14,16 +14,23 @@ export interface InputProps extends Omit<
   InputHTMLAttributes<HTMLInputElement>,
   "className" | "size"
 > {
-  readonly label?: string;
+  /*
+   * Optional props spell out `| undefined`. `exactOptionalPropertyTypes` is on,
+   * which is what we want in the Model — an absent field and an explicit
+   * `undefined` genuinely differ there — but for component props a caller
+   * passing `undefined` to mean "not set" is ordinary React, and forcing a
+   * conditional spread at every call site buys nothing.
+   */
+  readonly label?: string | undefined;
   /** Hides the label visually while keeping it for assistive technology. */
-  readonly labelHidden?: boolean;
-  readonly error?: string;
-  readonly hint?: string;
-  readonly leadingIcon?: LucideIcon;
-  readonly trailingSlot?: ReactNode;
-  readonly inputSize?: InputSize;
-  readonly className?: string;
-  readonly ref?: Ref<HTMLInputElement>;
+  readonly labelHidden?: boolean | undefined;
+  readonly error?: string | undefined;
+  readonly hint?: string | undefined;
+  readonly leadingIcon?: LucideIcon | undefined;
+  readonly trailingSlot?: ReactNode | undefined;
+  readonly inputSize?: InputSize | undefined;
+  readonly className?: string | undefined;
+  readonly ref?: Ref<HTMLInputElement> | undefined;
 }
 
 /*
