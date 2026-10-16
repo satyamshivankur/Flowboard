@@ -1,8 +1,12 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { failNextOperation } from "@/adapters/transport/simulated";
+import {
+  failNextOperation,
+  setSimulationSettings,
+  TEST_SIMULATION,
+} from "@/adapters/transport/simulated";
 import { ROLE_CAPABILITIES, type Capability } from "@/config/capabilities";
 import { AppProviders } from "@/contexts/AppProviders";
 import { useStore } from "@/controllers/store";
@@ -18,6 +22,9 @@ import { AppShell } from "./AppShell";
  * against the real store, so a regression in a selector, a hook or a view all
  * surface here (Requirement 18.7).
  */
+
+/** The real policy, captured before any test swaps it out. */
+const SEEDED_MEMBER_CAPABILITIES = ROLE_CAPABILITIES.member;
 
 const BACKLOG = {
   /** "To do", in board order. */
@@ -479,14 +486,12 @@ describe("a read-only task", () => {
    * entry, and the UI follows it with no changes of its own
    * (Requirement 8.6, 21.7).
    */
-  const original = ROLE_CAPABILITIES.member;
-
   beforeEach(() => {
     ROLE_CAPABILITIES.member = new Set<Capability>([]);
   });
 
   afterEach(() => {
-    ROLE_CAPABILITIES.member = original;
+    ROLE_CAPABILITIES.member = SEEDED_MEMBER_CAPABILITIES;
   });
 
   it("renders the drawer read-only and says why", async () => {
@@ -786,6 +791,335 @@ describe("an empty list", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("table")).toHaveTextContent("Plan the migration");
+    });
+  });
+});
+
+describe("permission UX", () => {
+  /*
+   * A drawer left open on a task the new user cannot see would be showing them
+   * data they are not entitled to. The view-model resolves to "does not exist"
+   * for them, which collapses the drawer in the same commit as the switch
+   * (Requirement 8.13, 17.1).
+   */
+  it("closes a drawer open on a task the new user cannot see", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    await user.click(card(BACKLOG.first));
+    await screen.findByRole("dialog", { name: BACKLOG.first });
+
+    // Bob can see Backlog, so pick a task he cannot: one on the denied Infra
+    // list, reached by selecting it as Alice first.
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    const tree = screen.getByRole("tree", { name: "Workspace" });
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      const collapsed = within(tree).queryAllByRole("treeitem", {
+        expanded: false,
+      });
+
+      if (collapsed.length === 0) break;
+
+      for (const item of collapsed) {
+        const toggle = item.querySelector("button");
+
+        if (toggle) await user.click(toggle);
+      }
+    }
+
+    await user.click(within(tree).getByText("Infra"));
+
+    /*
+     * Read the title out of the store rather than restating a seed string, so
+     * this does not break the next time the fixture is reworded.
+     */
+    const infraTask = Object.values(useStore.getState().tasks).find(
+      (task) => task.primaryListId === SEED_IDS.lists.infra,
+    );
+
+    expect(infraTask).toBeDefined();
+
+    const infraCard = await waitFor(() =>
+      screen.getByRole("button", { name: infraTask?.title ?? "" }),
+    );
+
+    await user.click(infraCard);
+    await screen.findByRole("dialog");
+
+    /*
+     * The switch goes through the store rather than the switcher, and
+     * deliberately: the drawer is modal, so Headless UI hides the top bar from
+     * the accessibility tree while it is open and the control genuinely cannot
+     * be reached. The guard still has to hold — this is the defence against a
+     * switch arriving from anywhere other than that one button, including a
+     * future command palette or a restored session.
+     */
+    act(() => {
+      useStore.getState().actions.session.switchUser(SEED_IDS.users.bob);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    // And the content region explains the situation rather than going blank.
+    expect(await screen.findByText(/don't have access/i)).toBeInTheDocument();
+  });
+
+  /*
+   * A permission denial and a network failure read differently on purpose: one
+   * is a dead end, the other is worth retrying, and a single "Something went
+   * wrong" makes both useless (Requirement 14.5, 17.3).
+   */
+  it("words a network failure as retryable and a denial as not", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    failNextOperation();
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: `Mark "${BACKLOG.first}" complete`,
+      }),
+    );
+
+    expect(await screen.findByText("Connection problem")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Try again" }),
+    ).toBeInTheDocument();
+
+    // Now a denial: Bob cannot archive, and the pipeline refuses rather than
+    // the UI merely disabling the control.
+    await user.click(screen.getByRole("button", { name: /switch user/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Bob Mensah/ }));
+
+    const result = useStore
+      .getState()
+      .actions.container.archive(
+        { workspaceId: SEED_IDS.workspace, userId: SEED_IDS.users.bob },
+        SEED_IDS.spaces.engineering,
+      );
+
+    await expect(result).resolves.toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN" },
+    });
+  });
+
+  /*
+   * The reason sits on the surface, once, rather than on every disabled
+   * control — and as visible text, which `title` cannot be on a touch device
+   * (Requirement 8.11, 17.2, 20.10).
+   */
+  it("states on the board itself why a list is read-only", async () => {
+    const user = userEvent.setup();
+
+    ROLE_CAPABILITIES.member = new Set<Capability>([]);
+
+    try {
+      renderShell();
+      await waitForBoard();
+
+      await user.click(screen.getByRole("button", { name: /switch user/i }));
+      await user.click(screen.getByRole("menuitem", { name: /Bob Mensah/ }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/read-only/i)).toHaveTextContent(
+          /admins only/i,
+        );
+      });
+
+      // And it is gone again for someone who can edit.
+      await user.click(screen.getByRole("button", { name: /switch user/i }));
+      await user.click(screen.getByRole("menuitem", { name: /Alice/ }));
+
+      await waitFor(() => {
+        expect(screen.queryByText(/read-only/i)).not.toBeInTheDocument();
+      });
+    } finally {
+      ROLE_CAPABILITIES.member = SEEDED_MEMBER_CAPABILITIES;
+    }
+  });
+});
+
+describe("destructive actions", () => {
+  /*
+   * Deleting a subtask was the one destructive path going through unconfirmed
+   * (Requirement 14.9, 2.12).
+   */
+  it("confirms before deleting a subtask, and does nothing if declined", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    // t-009 is the seeded task that has subtasks; it lives in Sprint 14.
+    useStore.setState((state) => ({ ...state }));
+
+    const tree = screen.getByRole("tree", { name: "Workspace" });
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      const collapsed = within(tree).queryAllByRole("treeitem", {
+        expanded: false,
+      });
+
+      if (collapsed.length === 0) break;
+
+      for (const item of collapsed) {
+        const toggle = item.querySelector("button");
+
+        if (toggle) await user.click(toggle);
+      }
+    }
+
+    await user.click(within(tree).getByText("Sprint 14"));
+
+    const parent = await waitFor(() =>
+      screen.getByRole("button", {
+        name: useStore.getState().tasks["t-009"]?.title ?? "",
+      }),
+    );
+
+    await user.click(parent);
+
+    const drawer = await screen.findByRole("dialog");
+    const subtaskTitle = useStore.getState().tasks["t-009-a"]?.title ?? "";
+
+    expect(subtaskTitle.length).toBeGreaterThan(0);
+
+    await user.click(
+      within(drawer).getByRole("button", { name: `Delete "${subtaskTitle}"` }),
+    );
+
+    // Declining must leave it exactly where it was.
+    const cancel = await screen.findByRole("button", { name: /cancel/i });
+
+    await user.click(cancel);
+
+    expect(useStore.getState().tasks["t-009-a"]).toBeDefined();
+
+    await user.click(
+      within(drawer).getByRole("button", { name: `Delete "${subtaskTitle}"` }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(useStore.getState().tasks["t-009-a"]).toBeUndefined();
+    });
+  });
+});
+
+describe("pending states", () => {
+  /*
+   * Latency is pinned to zero for the suite, so a test that wants to observe
+   * the in-flight state has to put some back. 60ms is enough to assert on and
+   * short enough not to slow the run.
+   */
+  afterEach(() => {
+    setSimulationSettings(TEST_SIMULATION);
+  });
+
+  it("subdues only the card being saved, and clears afterwards", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    setSimulationSettings({ minLatencyMs: 60, maxLatencyMs: 60 });
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: `Mark "${BACKLOG.first}" complete`,
+      }),
+    );
+
+    /*
+     * `aria-busy` rather than the opacity class: the visual cue says nothing
+     * to a screen reader, so the attribute is the part worth asserting
+     * (Requirement 14.7).
+     */
+    await waitFor(() => {
+      expect(card(BACKLOG.first)).toHaveAttribute("aria-busy", "true");
+    });
+
+    // Point-of-interaction, not global: the neighbouring card is untouched.
+    expect(card(BACKLOG.second)).not.toHaveAttribute("aria-busy");
+
+    await waitFor(() => {
+      expect(card(BACKLOG.first)).not.toHaveAttribute("aria-busy");
+    });
+  });
+});
+
+describe("the off-canvas sidebar", () => {
+  /*
+   * Below `lg` the sidebar is a Headless UI `Dialog`, which has to behave like
+   * one: trapped focus, Escape to close, focus restored to the trigger
+   * (Requirement 17.2, 20.4, 20.7).
+   *
+   * This is the one breakpoint the app observes from JavaScript, so the test
+   * overrides `matchMedia` rather than resizing anything — `SidebarContext`
+   * reads exactly this query.
+   */
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      configurable: true,
+      value: (query: string): MediaQueryList =>
+        ({
+          // Narrow: the `lg` min-width query must not match.
+          matches:
+            !query.includes("min-width") &&
+            (query.includes("hover: hover") || query.includes("pointer: fine")),
+          media: query,
+          onchange: null,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+          addListener: () => undefined,
+          removeListener: () => undefined,
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    });
+  });
+
+  it("opens as a dialog, closes on Escape and restores focus to its trigger", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+
+    const trigger = await screen.findByRole("button", {
+      name: /navigation|sidebar|menu/i,
+    });
+
+    // Closed to begin with: the tree is not merely off-screen, it is absent.
+    expect(screen.queryByRole("tree")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+
+    const sheet = await screen.findByRole("dialog");
+
+    expect(within(sheet).getByRole("tree")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /navigation|sidebar|menu/i }),
+      ).toHaveFocus();
     });
   });
 });

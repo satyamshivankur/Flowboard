@@ -109,7 +109,8 @@ export function Select<T extends string>({
         className={cn(
           "z-50 w-(--button-width) min-w-40 rounded-lg bg-surface p-1",
           "shadow-popover ring-1 ring-border",
-          "transition duration-100 data-closed:opacity-0",
+          // Matches `Menu`; see the note there on the 120ms floor.
+          "transition duration-150 data-closed:opacity-0",
           "motion-reduce:transition-none",
           "focus:outline-none",
         )}

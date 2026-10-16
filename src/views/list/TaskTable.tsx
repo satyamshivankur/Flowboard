@@ -15,6 +15,8 @@ export interface TaskTableProps {
   readonly now: string;
   readonly sort: SortState;
   readonly canEdit: boolean;
+  /** Whether a mutation on a given task is in flight (Requirement 14.7). */
+  readonly isPending: (taskId: string) => boolean;
   readonly expandedIds: ReadonlySet<string>;
   readonly onSortChange: (field: SortField) => void;
   readonly onOpen: (taskId: string) => void;
@@ -52,6 +54,7 @@ export function TaskTable({
   now,
   sort,
   canEdit,
+  isPending,
   expandedIds,
   onSortChange,
   onOpen,
@@ -67,6 +70,7 @@ export function TaskTable({
       // is the fragment — not on the `tr` nested inside it.
       <Fragment key={row.task.id}>
         <tr
+          aria-busy={isPending(row.task.id) || undefined}
           onClick={() => {
             onOpen(row.task.id);
           }}
@@ -74,6 +78,8 @@ export function TaskTable({
             "cursor-pointer border-b border-border",
             "transition-colors motion-reduce:transition-none",
             "can-hover:hover:bg-surface-hover",
+            // Subdued at the row that was acted on (Requirement 14.7).
+            isPending(row.task.id) && "opacity-60",
           )}
         >
           <td className="h-11 px-3 density-compact:h-9">
@@ -107,7 +113,15 @@ export function TaskTable({
                     event.stopPropagation();
                     onToggleExpand(row.task.id);
                   }}
-                  className="shrink-0 rounded text-ink-400 can-hover:hover:text-ink-900"
+                  className={cn(
+                    // The table renders from `md`, which includes tablets —
+                    // a coarse pointer at a wide viewport. A 1rem chevron is
+                    // not tappable there (Requirement 20.9).
+                    "flex shrink-0 items-center justify-center rounded",
+                    "size-icon-md coarse-pointer:size-touch",
+                    "text-ink-400 can-hover:hover:text-ink-900",
+                    "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-1",
+                  )}
                 >
                   <ChevronRight
                     className={cn(
@@ -190,6 +204,7 @@ export function TaskTable({
                     }}
                     className={cn(
                       "flex items-center gap-1 rounded",
+                      "coarse-pointer:min-h-touch",
                       "can-hover:hover:text-ink-900",
                       "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-2",
                       isActive && "text-ink-900",

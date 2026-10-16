@@ -30,7 +30,13 @@
   --color-border-strong: #cfd4dc;
   --color-ink-900: #101828;
   --color-ink-600: #475467;
-  --color-ink-400: #98a2b3;
+  /*
+   * Secondary text — due dates, counts, timestamps, placeholders. Held to the
+   * 4.5:1 body-text threshold rather than a graphics threshold: WCAG has no
+   * "it's only metadata" exemption, and at the previous #98a2b3 this was
+   * 2.58:1 on white.
+   */
+  --color-ink-400: #676e79;
   --color-ink-300: #cfd4dc;
 
   /* brand */
@@ -47,7 +53,7 @@
   --color-success-700: #0c7f47;
   --color-warning-50: #fdf4e3;
   --color-warning-600: #d98a00;
-  --color-warning-700: #b07000;
+  --color-warning-700: #9a6200;
   --color-danger-50: #fdeceb;
   --color-danger-600: #d64545;
   --color-danger-700: #b53838;
@@ -58,15 +64,22 @@
   /*
    * Priority tokens — one source of truth shared by kanban cards, list rows
    * and the task drawer, so the same priority can never render two ways.
+   *
+   * These are darker than a palette picked by eye would suggest, because
+   * `PriorityBadge`'s soft variant renders them as *text* on the matching
+   * 50-level tint. Measured there, the original urgent/high/normal values came
+   * out at 3.83, 2.52 and 3.38 against a 4.5 requirement — the kind of failure
+   * that is invisible until it is computed. `src/config/contrast.test.ts`
+   * computes it on every run (Requirement 17.7).
    */
-  --color-priority-urgent: #d64545;
-  --color-priority-high: #e8820c;
-  --color-priority-normal: #2d7ff9;
+  --color-priority-urgent: #c23e3e;
+  --color-priority-high: #a55c08;
+  --color-priority-normal: #266bd3;
   --color-priority-low: #667085;
   --color-priority-none: #cfd4dc;
 
   /* status category tokens */
-  --color-status-todo: #98a2b3;
+  --color-status-todo: #838c9a;
   --color-status-active: #2d7ff9;
   --color-status-review: #8b5cf6;
   --color-status-done: #0f9d58;
@@ -153,10 +166,25 @@
 
 /*
  * Density: a single data attribute on the shell retunes spacing app-wide.
- * Clamped to comfortable below md, because compact density and a 2.75rem touch
- * target are in direct conflict (Requirement 20.9).
+ *
+ * The pointer condition is part of the variant, not a caller's responsibility.
+ * Compact density and a 2.75rem touch target are in direct conflict, and the
+ * conflict is about the *pointer*, not the viewport width — a tablet is wide
+ * and still coarse. Putting `pointer: fine` here means no `density-compact:`
+ * utility can shrink a target below the minimum, however it is written, rather
+ * than every call site having to remember to pair it with `can-hover:`
+ * (Requirement 16.3, 20.9).
+ *
+ * The toggle itself is additionally hidden below `md`, where the denser layout
+ * would have nothing to gain.
  */
-@custom-variant density-compact (&:where([data-density='compact'] *, [data-density='compact']));
+@custom-variant density-compact {
+  @media (pointer: fine) {
+    &:where([data-density="compact"] *, [data-density="compact"]) {
+      @slot;
+    }
+  }
+}
 
 /*
  * can-hover: gates every hover-revealed affordance. On a coarse pointer the

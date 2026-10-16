@@ -10,7 +10,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { AvatarGroup } from "@/components/ui/AvatarGroup";
 import { Button } from "@/components/ui/Button";
@@ -30,7 +30,7 @@ import {
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useNavigation } from "@/contexts/NavigationContext";
 import { useToast } from "@/contexts/ToastContext";
-import { useAction } from "@/controllers/hooks/useAction";
+import { usePendingAction } from "@/controllers/hooks/usePendingAction";
 import {
   useTaskDrawer,
   type UpdateTaskInput,
@@ -62,18 +62,19 @@ type PendingField = "status" | "priority" | "assignees" | "dueDate" | "list";
 export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
   const { openTaskId, openTask, closeTask } = useNavigation();
   const { confirm } = useConfirm();
-  const { run } = useAction();
-  const toast = useToast();
-  const drawer = useTaskDrawer(openTaskId);
-
-  const open = openTaskId !== null && drawer.exists;
-
   /*
    * Which field is saving, not merely whether something is. A single global
    * spinner cannot tell a user that their status change landed while the
    * assignee change is still in flight (Requirement 7.7, 14.7).
+   *
+   * Same hook the board uses, keyed by field name instead of task id — the
+   * shape of the problem is identical, so it should not have two solutions.
    */
-  const [pending, setPending] = useState<PendingField | null>(null);
+  const { run, isPending } = usePendingAction();
+  const toast = useToast();
+  const drawer = useTaskDrawer(openTaskId);
+
+  const open = openTaskId !== null && drawer.exists;
 
   /*
    * The content is latched to what it was while open. `closeTask()` sets
@@ -100,27 +101,17 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
    */
   const save = useCallback(
     (field: PendingField | null, input: UpdateTaskInput) => {
-      setPending(field);
-
-      void run(() => view.onFieldSave(input), { retryable: true }).finally(
-        () => {
-          setPending(null);
-        },
-      );
+      void run(field, () => view.onFieldSave(input), { retryable: true });
     },
     [run, view],
   );
 
   const handleMoveToList = useCallback(
     (listId: string) => {
-      setPending("list");
-
       void (async () => {
-        const result = await run(() => view.onMoveToList(listId), {
+        const result = await run("list", () => view.onMoveToList(listId), {
           successTitle: "Task moved",
         });
-
-        setPending(null);
 
         /*
          * A move between lists can land the task on a different status, since
@@ -140,6 +131,35 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
     [run, toast, view],
   );
 
+  /*
+   * Deleting a subtask is as destructive as deleting a task, and it was going
+   * through unconfirmed — the only unguarded destructive path left in the app
+   * (Requirement 14.9, 2.12). No cascade to name, since depth is capped at 1.
+   */
+  const handleDeleteSubtask = useCallback(
+    (subtaskId: string) => {
+      void (async () => {
+        const subtask = view.subtasks.find(
+          (candidate) => candidate.id === subtaskId,
+        );
+
+        if (!subtask) return;
+
+        const confirmed = await confirm({
+          title: `Delete "${subtask.title}"?`,
+          body: "This cannot be undone.",
+          confirmLabel: "Delete",
+          tone: "danger",
+        });
+
+        if (!confirmed) return;
+
+        void run(subtaskId, () => view.onDeleteSubtask(subtaskId));
+      })();
+    },
+    [confirm, run, view],
+  );
+
   const handleDelete = useCallback(() => {
     void (async () => {
       const confirmed = await confirm({
@@ -154,7 +174,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
 
       if (!confirmed) return;
 
-      const result = await run(() => view.onDelete(), {
+      const result = await run(view.taskId, () => view.onDelete(), {
         successTitle: "Task deleted",
       });
 
@@ -251,7 +271,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             <PropertyRow
               label="Status"
               icon={CircleDot}
-              pending={pending === "status"}
+              pending={isPending("status")}
             >
               <Select
                 label="Status"
@@ -285,7 +305,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             <PropertyRow
               label="Priority"
               icon={Flag}
-              pending={pending === "priority"}
+              pending={isPending("priority")}
             >
               <Select<Priority>
                 label="Priority"
@@ -304,7 +324,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             <PropertyRow
               label="Assignees"
               icon={Users}
-              pending={pending === "assignees"}
+              pending={isPending("assignees")}
             >
               <Menu
                 align="start"
@@ -330,6 +350,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
                     aria-label="Change assignees"
                     className={cn(
                       "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left",
+                      "coarse-pointer:h-touch",
                       "can-hover:hover:bg-surface-hover",
                       "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-2",
                       "disabled:cursor-default",
@@ -353,7 +374,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             <PropertyRow
               label="Due date"
               icon={CalendarClock}
-              pending={pending === "dueDate"}
+              pending={isPending("dueDate")}
             >
               {/*
                 A native date input rather than a custom calendar: it brings the
@@ -383,7 +404,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             <PropertyRow
               label="List"
               icon={FolderInput}
-              pending={pending === "list"}
+              pending={isPending("list")}
             >
               <Menu
                 align="start"
@@ -436,15 +457,18 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             subtasks={view.subtasks}
             canEdit={view.canEdit}
             onToggle={(subtaskId) => {
-              void run(() => view.onToggleSubtask(subtaskId));
+              void run(subtaskId, () => view.onToggleSubtask(subtaskId), {
+                retryable: true,
+              });
             }}
             onCreate={(title) => {
-              void run(() => view.onAddSubtask(title));
+              void run(null, () => view.onAddSubtask(title), {
+                retryable: true,
+              });
             }}
             onOpen={openTask}
-            onDelete={(subtaskId) => {
-              void run(() => view.onDeleteSubtask(subtaskId));
-            }}
+            onDelete={handleDeleteSubtask}
+            isPending={isPending}
           />
         </div>
       </ScrollShadow>

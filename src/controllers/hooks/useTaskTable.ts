@@ -15,6 +15,7 @@ import type { UpdateTaskInput } from "../slices/types";
 import { useStore } from "../store";
 
 import { buildTaskCard, type TaskCardViewModel } from "./useBoard";
+import { usePermissions } from "./usePermissions";
 import { useScope } from "./useScope";
 
 /** A table row: a top-level task plus its nested subtasks. */
@@ -34,6 +35,8 @@ export interface TaskTableViewModel {
   readonly isLoading: boolean;
   readonly isEmpty: boolean;
   readonly canEdit: boolean;
+  /** Why editing is refused, or undefined when it is not (Req 8.11, 17.2). */
+  readonly readOnlyReason: string | undefined;
   readonly sort: SortState;
   readonly onQuickUpdate: (
     taskId: string,
@@ -65,6 +68,7 @@ export function useTaskTable(
   const actions = useStore((state) => state.actions.task);
   const isHydrating = useStore((state) => state.isHydrating);
   const loadingListId = useStore((state) => state.loadingListId);
+  const permissions = usePermissions();
 
   /*
    * Derived in `useMemo` from the whole store, not mapped inside a
@@ -141,6 +145,10 @@ export function useTaskTable(
       isLoading: isHydrating || loadingListId === listId,
       isEmpty: total === 0,
       canEdit,
+      readOnlyReason:
+        listId === null
+          ? undefined
+          : permissions.reasonFor("task:update", listId),
       sort,
       onQuickUpdate,
       onToggleComplete,
@@ -154,6 +162,7 @@ export function useTaskTable(
       loadingListId,
       listId,
       canEdit,
+      permissions,
       sort,
       onQuickUpdate,
       onToggleComplete,

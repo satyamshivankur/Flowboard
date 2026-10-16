@@ -5,7 +5,7 @@ import {
   MenuItems,
 } from "@headlessui/react";
 import type { LucideIcon } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useId, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -55,6 +55,8 @@ export function Menu({
   label,
   className,
 }: MenuProps) {
+  const reasonPrefix = useId();
+
   return (
     <HeadlessMenu as="div" className="relative inline-flex">
       {/*
@@ -73,13 +75,20 @@ export function Menu({
         anchor={{ to: align === "end" ? "bottom end" : "bottom start", gap: 4 }}
         className={cn(
           "z-50 min-w-48 rounded-lg bg-surface p-1 shadow-popover ring-1 ring-border",
-          "transition duration-100 data-closed:scale-95 data-closed:opacity-0",
+          // 150ms, the shared floor: below about 120ms a transition reads as a
+          // flicker rather than as motion (Requirement 14.11).
+          "transition duration-150 data-closed:scale-95 data-closed:opacity-0",
           "motion-reduce:transition-none motion-reduce:data-closed:scale-100",
           "focus:outline-none",
           className,
         )}
       >
-        {items.map((item) => (
+        {items.map((item) => {
+          const showReason =
+            item.disabled === true && item.disabledReason !== undefined;
+          const reasonId = `${reasonPrefix}-${item.id}`;
+
+          return (
           <div key={item.id}>
             {item.separatorBefore === true && (
               <div className="my-1 h-px bg-border" role="separator" />
@@ -90,10 +99,21 @@ export function Menu({
                 type="button"
                 disabled={item.disabled === true}
                 title={item.disabled === true ? item.disabledReason : undefined}
+                /*
+                 * The accessible name is the label and nothing else; the
+                 * reason is a *description*. Left as plain text inside the
+                 * button it would become part of the name — and only on a
+                 * coarse pointer, so the same item would be called two
+                 * different things on two devices.
+                 */
+                aria-label={item.label}
+                aria-describedby={showReason ? reasonId : undefined}
                 onClick={item.onSelect}
                 className={cn(
                   "flex w-full items-center gap-2 rounded px-2.5 text-left text-sm",
-                  "h-8 coarse-pointer:min-h-touch",
+                  // `min-h` rather than a fixed height: a disabled item grows
+                  // to fit the reason it now states inline.
+                  "min-h-8 py-1 coarse-pointer:min-h-touch",
                   "transition-colors motion-reduce:transition-none",
                   "disabled:pointer-events-none disabled:opacity-40",
                   TONE[item.tone ?? "default"],
@@ -106,11 +126,30 @@ export function Menu({
                     aria-hidden
                   />
                 )}
-                <span className="truncate">{item.label}</span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{item.label}</span>
+
+                  {/*
+                    The reason a control is disabled cannot live only in
+                    `title`: a touch device has no hover, so the explanation
+                    would be unreachable exactly where the user cannot guess it
+                    (Requirement 8.11, 17.2, 20.10). `title` still serves a
+                    mouse; this serves everything else.
+                  */}
+                  {showReason && (
+                    <span
+                      id={reasonId}
+                      className="hidden truncate text-xs font-normal text-ink-400 coarse-pointer:block"
+                    >
+                      {item.disabledReason}
+                    </span>
+                  )}
+                </span>
               </button>
             </MenuItem>
           </div>
-        ))}
+          );
+        })}
       </MenuItems>
     </HeadlessMenu>
   );

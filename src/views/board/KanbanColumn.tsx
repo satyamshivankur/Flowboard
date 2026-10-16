@@ -24,9 +24,13 @@ export interface KanbanColumnProps {
   readonly tasks: readonly TaskCardViewModel[];
   readonly now: string;
   readonly canEdit: boolean;
+  /** Why editing is refused, forwarded to each card's menu (Req 8.11, 17.2). */
+  readonly readOnlyReason: string | undefined;
   readonly statuses: readonly TaskCardStatusOption[];
   readonly moveTargets: readonly { id: string; name: string }[];
   readonly members: readonly { id: string; name: string }[];
+  /** Whether a mutation on a given task is in flight (Requirement 14.7). */
+  readonly isPending: (taskId: string) => boolean;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
   readonly onSetPriority: (taskId: string, priority: string) => void;
@@ -48,9 +52,11 @@ export function KanbanColumn({
   tasks,
   now,
   canEdit,
+  readOnlyReason,
   statuses,
   moveTargets,
   members,
+  isPending,
   onOpen,
   onToggleComplete,
   onSetPriority,
@@ -134,11 +140,13 @@ export function KanbanColumn({
               task={task}
               now={now}
               canEdit={canEdit}
+              readOnlyReason={readOnlyReason}
               statuses={statuses}
               moveTargets={moveTargets}
               members={members}
               index={index}
               columnLength={tasks.length}
+              isPending={isPending(task.id)}
               onOpen={onOpen}
               onToggleComplete={onToggleComplete}
               onSetPriority={onSetPriority}

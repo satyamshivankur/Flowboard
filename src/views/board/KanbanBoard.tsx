@@ -20,10 +20,11 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import type { Priority } from "@/config/priorities";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useNavigation } from "@/contexts/NavigationContext";
-import { useAction } from "@/controllers/hooks/useAction";
 import { useBoard } from "@/controllers/hooks/useBoard";
+import { usePendingAction } from "@/controllers/hooks/usePendingAction";
 import { cn } from "@/lib/cn";
 
+import { ReadOnlyNotice } from "../states/ReadOnlyNotice";
 import type { ViewProps } from "../viewComponents";
 
 import { BoardPager } from "./BoardPager";
@@ -90,7 +91,12 @@ export function KanbanBoard({ listId }: ViewProps) {
   const { openTask } = useNavigation();
   const { confirm } = useConfirm();
 
-  const { run } = useAction();
+  /*
+   * Keyed by task id, so the card that was acted on is the one that dims —
+   * rather than a global overlay taking the board away for 300ms
+   * (Requirement 14.7).
+   */
+  const { run, isPending } = usePendingAction();
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -217,9 +223,11 @@ export function KanbanBoard({ listId }: ViewProps) {
        * The store has already rolled the card back to its exact pre-drag
        * position by the time this resolves (Requirement 4.8, 14.12).
        */
-      void run(() => board.onMoveTask(activeId, drop.statusId, drop.index), {
-        retryable: true,
-      });
+      void run(
+        activeId,
+        () => board.onMoveTask(activeId, drop.statusId, drop.index),
+        { retryable: true },
+      );
     },
     [board, run],
   );
@@ -238,9 +246,11 @@ export function KanbanBoard({ listId }: ViewProps) {
         ? current.filter((id) => id !== userId)
         : [...current, userId];
 
-      void run(() => board.onQuickUpdate(taskId, { assigneeIds: next }), {
-        retryable: true,
-      });
+      void run(
+        taskId,
+        () => board.onQuickUpdate(taskId, { assigneeIds: next }),
+        { retryable: true },
+      );
     },
     [board, run],
   );
@@ -266,7 +276,7 @@ export function KanbanBoard({ listId }: ViewProps) {
 
         if (!confirmed) return;
 
-        void run(() => board.onDeleteTask(taskId), {
+        void run(taskId, () => board.onDeleteTask(taskId), {
           successTitle: "Task deleted",
         });
       })();
@@ -308,6 +318,13 @@ export function KanbanBoard({ listId }: ViewProps) {
       }}
     >
       <div className="flex h-full min-h-0 flex-col">
+        {/*
+          Stated once, at the top of the surface, rather than by every disabled
+          control individually — and visibly, which `title` cannot manage on a
+          touch device (Requirement 8.11, 17.2, 20.10).
+        */}
+        <ReadOnlyNotice reason={board.readOnlyReason} subject="list" />
+
         <div
           ref={scrollerRef}
           onScroll={handleScroll}
@@ -327,17 +344,20 @@ export function KanbanBoard({ listId }: ViewProps) {
               tasks={column.tasks}
               now={now}
               canEdit={board.canEdit}
+              readOnlyReason={board.readOnlyReason}
               statuses={statusOptions}
               moveTargets={board.moveTargets}
               members={board.members}
+              isPending={isPending}
               onOpen={openTask}
               onToggleComplete={(taskId) => {
-                void run(() => board.onToggleComplete(taskId), {
+                void run(taskId, () => board.onToggleComplete(taskId), {
                   retryable: true,
                 });
               }}
               onSetPriority={(taskId, priority) => {
                 void run(
+                  taskId,
                   () =>
                     board.onQuickUpdate(taskId, {
                       priority: priority as Priority,
@@ -346,35 +366,46 @@ export function KanbanBoard({ listId }: ViewProps) {
                 );
               }}
               onSetStatus={(taskId, statusId) => {
-                void run(() => board.onQuickUpdate(taskId, { statusId }), {
-                  retryable: true,
-                });
+                void run(
+                  taskId,
+                  () => board.onQuickUpdate(taskId, { statusId }),
+                  { retryable: true },
+                );
               }}
               onToggleAssignee={handleToggleAssignee}
               onSetDueDate={(taskId, dueDate) => {
-                void run(() => board.onQuickUpdate(taskId, { dueDate }), {
-                  retryable: true,
-                });
+                void run(
+                  taskId,
+                  () => board.onQuickUpdate(taskId, { dueDate }),
+                  { retryable: true },
+                );
               }}
               onReorder={(taskId, toIndex) => {
                 void run(
+                  taskId,
                   () => board.onMoveTask(taskId, column.statusId, toIndex),
                   { retryable: true },
                 );
               }}
               onDuplicate={(taskId) => {
-                void run(() => board.onDuplicateTask(taskId), {
+                void run(taskId, () => board.onDuplicateTask(taskId), {
                   successTitle: "Task duplicated",
                 });
               }}
               onMoveToList={(taskId, targetListId) => {
-                void run(() => board.onMoveToList(taskId, targetListId), {
-                  successTitle: "Task moved",
-                });
+                void run(
+                  taskId,
+                  () => board.onMoveToList(taskId, targetListId),
+                  { successTitle: "Task moved" },
+                );
               }}
               onDelete={handleDelete}
+              /*
+               * Creation has no task id yet, so it keys on the column. The
+               * composer input is what shows progress here.
+               */
               onCreate={(statusId, title) => {
-                void run(() => board.onCreateTask(statusId, title), {
+                void run(statusId, () => board.onCreateTask(statusId, title), {
                   retryable: true,
                 });
               }}
@@ -400,6 +431,7 @@ export function KanbanBoard({ listId }: ViewProps) {
             task={dragging}
             now={now}
             canEdit={board.canEdit}
+            readOnlyReason={board.readOnlyReason}
             statuses={statusOptions}
             moveTargets={board.moveTargets}
             members={board.members}

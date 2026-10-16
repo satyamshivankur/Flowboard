@@ -61,6 +61,9 @@ const MOVE_TARGETS = [
 
 const noop = () => undefined;
 
+/** Nothing is in flight in a story, unless a story says otherwise. */
+const nothingPending = () => false;
+
 const CARD_HANDLERS = {
   onOpen: noop,
   onToggleComplete: noop,
@@ -172,6 +175,28 @@ export const CardOverlay: Story = {
   ),
 };
 
+/** Mid-save: subdued and `aria-busy`, but still readable and still usable. */
+export const CardPending: Story = {
+  render: () => (
+    <Sortable ids={["t-005"]}>
+      <div className="w-column">
+        <TaskCard
+          task={cardFor("t-005")}
+          now={SEED_NOW}
+          canEdit
+          statuses={STATUSES}
+          moveTargets={MOVE_TARGETS}
+          members={MEMBERS}
+          index={0}
+          columnLength={2}
+          isPending
+          {...CARD_HANDLERS}
+        />
+      </div>
+    </Sortable>
+  ),
+};
+
 /** A card a member may see but not change: every control disables itself. */
 export const CardReadOnly: Story = {
   render: () => (
@@ -181,6 +206,7 @@ export const CardReadOnly: Story = {
           task={cardFor("t-004")}
           now={SEED_NOW}
           canEdit={false}
+          readOnlyReason="Admins only"
           statuses={STATUSES}
           moveTargets={MOVE_TARGETS}
           members={MEMBERS}
@@ -208,9 +234,11 @@ export const Columns: Story = {
             tasks={populated}
             now={SEED_NOW}
             canEdit
+            readOnlyReason={undefined}
             statuses={STATUSES}
             moveTargets={MOVE_TARGETS}
             members={MEMBERS}
+            isPending={nothingPending}
             onCreate={noop}
             {...CARD_HANDLERS}
           />
@@ -225,9 +253,11 @@ export const Columns: Story = {
             tasks={[]}
             now={SEED_NOW}
             canEdit
+            readOnlyReason={undefined}
             statuses={STATUSES}
             moveTargets={MOVE_TARGETS}
             members={MEMBERS}
+            isPending={nothingPending}
             onCreate={noop}
             {...CARD_HANDLERS}
           />
@@ -242,9 +272,11 @@ export const Columns: Story = {
             tasks={[cardFor("t-006")]}
             now={SEED_NOW}
             canEdit={false}
+            readOnlyReason="Admins only"
             statuses={STATUSES}
             moveTargets={[]}
             members={MEMBERS}
+            isPending={nothingPending}
             onCreate={noop}
             {...CARD_HANDLERS}
           />

@@ -8,10 +8,11 @@ import { ScrollShadow } from "@/components/ui/ScrollShadow";
 import { Select } from "@/components/ui/Select";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useNavigation } from "@/contexts/NavigationContext";
-import { useAction } from "@/controllers/hooks/useAction";
+import { usePendingAction } from "@/controllers/hooks/usePendingAction";
 import { useTaskTable } from "@/controllers/hooks/useTaskTable";
 import type { SortField, SortState } from "@/model/types";
 
+import { ReadOnlyNotice } from "../states/ReadOnlyNotice";
 import type { ViewProps } from "../viewComponents";
 
 import { TaskCardList } from "./TaskCardList";
@@ -45,7 +46,8 @@ export function TaskListView({ listId }: ViewProps) {
 
   const table = useTaskTable(listId, sort, page, now);
   const { openTask } = useNavigation();
-  const { run } = useAction();
+  // Keyed by task id, so the row that was ticked is the row that dims.
+  const { run, isPending } = usePendingAction();
 
   const submitNewTask = useCallback(() => {
     const trimmed = newTitle.trim();
@@ -53,7 +55,9 @@ export function TaskListView({ listId }: ViewProps) {
     setNewTitle("");
     setComposing(false);
 
-    if (trimmed.length > 0) void run(() => table.onCreate(trimmed), { retryable: true });
+    if (trimmed.length > 0) {
+      void run(null, () => table.onCreate(trimmed), { retryable: true });
+    }
   }, [newTitle, run, table]);
 
   /** Clicking the active column flips direction; a new column starts ascending. */
@@ -150,6 +154,8 @@ export function TaskListView({ listId }: ViewProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <ReadOnlyNotice reason={table.readOnlyReason} subject="list" />
+
       {/*
         The sort dropdown replaces the table headers below `md`, offering the
         identical option set (Requirement 20.6).
@@ -177,9 +183,12 @@ export function TaskListView({ listId }: ViewProps) {
             rows={table.rows}
             now={now}
             canEdit={table.canEdit}
+            isPending={isPending}
             onOpen={openTask}
             onToggleComplete={(taskId) => {
-              void run(() => table.onToggleComplete(taskId), { retryable: true });
+              void run(taskId, () => table.onToggleComplete(taskId), {
+                retryable: true,
+              });
             }}
           />
         </div>
@@ -190,11 +199,14 @@ export function TaskListView({ listId }: ViewProps) {
             now={now}
             sort={sort}
             canEdit={table.canEdit}
+            isPending={isPending}
             expandedIds={expandedIds}
             onSortChange={handleSortChange}
             onOpen={openTask}
             onToggleComplete={(taskId) => {
-              void run(() => table.onToggleComplete(taskId), { retryable: true });
+              void run(taskId, () => table.onToggleComplete(taskId), {
+                retryable: true,
+              });
             }}
             onToggleExpand={toggleExpand}
           />

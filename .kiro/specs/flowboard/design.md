@@ -179,7 +179,9 @@ src/
 │       ├── useTaskTable.ts
 │       ├── useTaskDrawer.ts
 │       ├── useContainerActions.ts
-│       └── usePermissions.ts
+│       ├── usePermissions.ts
+│       ├── useAction.ts           # the single error-surfacing path
+│       └── usePendingAction.ts    # useAction + in-flight keys, for 14.7
 │
 ├── contexts/                     # Layer 2.5 — presentation concerns
 │   ├── AppProviders.tsx
@@ -197,7 +199,8 @@ src/
 │   ├── board/                    # KanbanBoard, KanbanColumn, TaskCard, ...
 │   ├── list/                     # TaskListView, TaskTable, TaskRow, ...
 │   ├── drawer/                   # TaskDrawer and its field sections
-│   └── states/                   # PermissionDenied, NoListSelected, ...
+│   └── states/                   # PermissionDenied, NoListSelected,
+│                                  # ReadOnlyNotice
 │
 ├── components/ui/                # Design system — pure primitives + stories
 ├── lib/                          # cn(), date utils, keyboard utils

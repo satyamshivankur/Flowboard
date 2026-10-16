@@ -148,7 +148,9 @@ export function TreeItem({
               if (expandable) onToggle(row.id);
             }}
             className={cn(
-              "flex size-4 shrink-0 items-center justify-center rounded",
+              // `self-stretch` so the chevron's hit area is the full row
+              // height. Centred within it, the icon still reads as 1rem.
+              "flex w-4 shrink-0 self-stretch items-center justify-center rounded",
               expandable
                 ? "text-ink-400 can-hover:hover:text-ink-900"
                 : "invisible",
@@ -177,6 +179,13 @@ export function TreeItem({
           }}
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 rounded text-left",
+            /*
+             * `self-stretch` is what makes the row's `h-11` the actual target.
+             * Without it the button is only as tall as its text, so the top
+             * and bottom of a tree row look tappable and are not
+             * (Requirement 20.9).
+             */
+            "self-stretch",
             "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-1",
             collapsed && "flex-none justify-center",
           )}

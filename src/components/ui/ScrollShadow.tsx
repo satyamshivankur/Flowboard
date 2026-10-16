@@ -83,7 +83,11 @@ export function ScrollShadow({
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute from-surface to-transparent transition-opacity",
+          "pointer-events-none absolute from-surface to-transparent",
+          // The fades cross-fade as the region scrolls, so they need the
+          // same reduced-motion guard as every other transition here
+          // (Requirement 14.11).
+          "transition-opacity duration-150 motion-reduce:transition-none",
           isVertical
             ? "inset-x-0 top-0 h-4 bg-gradient-to-b"
             : "inset-y-0 left-0 w-4 bg-gradient-to-r",
@@ -94,7 +98,11 @@ export function ScrollShadow({
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute from-surface to-transparent transition-opacity",
+          "pointer-events-none absolute from-surface to-transparent",
+          // The fades cross-fade as the region scrolls, so they need the
+          // same reduced-motion guard as every other transition here
+          // (Requirement 14.11).
+          "transition-opacity duration-150 motion-reduce:transition-none",
           isVertical
             ? "inset-x-0 bottom-0 h-4 bg-gradient-to-t"
             : "inset-y-0 right-0 w-4 bg-gradient-to-l",

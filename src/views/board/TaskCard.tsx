@@ -47,6 +47,12 @@ export interface TaskCardProps {
   readonly task: TaskCardViewModel;
   readonly now: string;
   readonly canEdit: boolean;
+  /**
+   * Why editing is refused. Attached to every gated menu item, so a greyed
+   * "Delete task" explains itself instead of just refusing
+   * (Requirement 8.11, 17.2).
+   */
+  readonly readOnlyReason?: string | undefined;
   /** Statuses of this task's own list, for the quick status change. */
   readonly statuses: readonly TaskCardStatusOption[];
   readonly moveTargets: readonly { id: string; name: string }[];
@@ -57,6 +63,8 @@ export interface TaskCardProps {
   readonly columnLength: number;
   /** True for the floating clone that follows the cursor. */
   readonly isOverlay?: boolean;
+  /** A mutation on this task is in flight (Requirement 14.7). */
+  readonly isPending?: boolean;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
   readonly onSetPriority: (taskId: string, priority: string) => void;
@@ -81,12 +89,14 @@ export function TaskCard({
   task,
   now,
   canEdit,
+  readOnlyReason,
   statuses,
   moveTargets,
   members,
   index,
   columnLength,
   isOverlay = false,
+  isPending = false,
   onOpen,
   onToggleComplete,
   onSetPriority,
@@ -118,6 +128,7 @@ export function TaskCard({
         id: `status-${status.id}`,
         label: `Move to ${status.name}`,
         disabled: !canEdit,
+        disabledReason: readOnlyReason,
         onSelect: () => {
           onSetStatus(task.id, status.id);
         },
@@ -130,6 +141,7 @@ export function TaskCard({
       label: `Priority: ${PRIORITY_CONFIG[priority].label}`,
       icon: PRIORITY_CONFIG[priority].icon,
       disabled: !canEdit,
+      disabledReason: readOnlyReason,
       separatorBefore: index === 0,
       onSelect: () => {
         onSetPriority(task.id, priority);
@@ -152,6 +164,7 @@ export function TaskCard({
           : `Assign ${member.name}`,
         icon: assignedIds.has(member.id) ? UserMinus : UserPlus,
         disabled: !canEdit,
+        disabledReason: readOnlyReason,
         separatorBefore: position === 0,
         onSelect: () => {
           onToggleAssignee(task.id, member.id);
@@ -164,6 +177,7 @@ export function TaskCard({
         label: `Due ${preset.label.toLowerCase()}`,
         icon: CalendarClock,
         disabled: !canEdit,
+        disabledReason: readOnlyReason,
         separatorBefore: position === 0,
         onSelect: () => {
           onSetDueDate(task.id, dueDateAtDays(now, preset.days));
@@ -177,6 +191,7 @@ export function TaskCard({
               label: "Clear due date",
               icon: CalendarOff,
               disabled: !canEdit,
+              disabledReason: readOnlyReason,
               onSelect: () => {
                 onSetDueDate(task.id, null);
               },
@@ -199,6 +214,8 @@ export function TaskCard({
         label: "Move up",
         icon: ArrowUp,
         disabled: !canEdit || index === 0,
+        // Two different refusals: no permission, or nowhere further to go.
+        disabledReason: canEdit ? "Already first" : readOnlyReason,
         separatorBefore: true,
         onSelect: () => {
           onReorder(task.id, index - 1);
@@ -209,6 +226,7 @@ export function TaskCard({
         label: "Move down",
         icon: ArrowDown,
         disabled: !canEdit || index >= columnLength - 1,
+        disabledReason: canEdit ? "Already last" : readOnlyReason,
         onSelect: () => {
           onReorder(task.id, index + 1);
         },
@@ -222,6 +240,7 @@ export function TaskCard({
         label: `Move to "${list.name}"`,
         icon: CornerUpRight,
         disabled: !canEdit,
+        disabledReason: readOnlyReason,
         separatorBefore: position === 0,
         onSelect: () => {
           onMoveToList(task.id, list.id);
@@ -251,6 +270,7 @@ export function TaskCard({
         label: "Duplicate",
         icon: Copy,
         disabled: !canEdit,
+        disabledReason: readOnlyReason,
         separatorBefore: true,
         onSelect: () => {
           onDuplicate(task.id);
@@ -262,6 +282,7 @@ export function TaskCard({
         icon: Trash2,
         tone: "danger",
         disabled: !canEdit,
+        disabledReason: readOnlyReason,
         onSelect: () => {
           onDelete(task.id);
         },
@@ -276,6 +297,7 @@ export function TaskCard({
     index,
     columnLength,
     canEdit,
+    readOnlyReason,
     onOpen,
     onSetStatus,
     onSetPriority,
@@ -352,6 +374,7 @@ export function TaskCard({
       elevated
       dragging={isDragging}
       overlay={isOverlay}
+      pending={isPending}
       padding="md"
       /*
        * dnd-kit's attributes come first and already supply `role="button"`,

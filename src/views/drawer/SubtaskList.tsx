@@ -10,6 +10,8 @@ import { cn } from "@/lib/cn";
 export interface SubtaskListProps {
   readonly subtasks: readonly DrawerSubtask[];
   readonly canEdit: boolean;
+  /** Whether a mutation on a given subtask is in flight (Requirement 14.7). */
+  readonly isPending: (subtaskId: string) => boolean;
   readonly onToggle: (subtaskId: string) => void;
   readonly onCreate: (title: string) => void;
   readonly onOpen: (subtaskId: string) => void;
@@ -25,6 +27,7 @@ export interface SubtaskListProps {
 export function SubtaskList({
   subtasks,
   canEdit,
+  isPending,
   onToggle,
   onCreate,
   onOpen,
@@ -75,10 +78,15 @@ export function SubtaskList({
         {subtasks.map((subtask) => (
           <li
             key={subtask.id}
+            aria-busy={isPending(subtask.id) || undefined}
             className={cn(
               "group flex items-center gap-2 rounded-md px-1",
               "h-11 can-hover:h-8",
               "can-hover:hover:bg-surface-hover",
+              "transition-opacity duration-150 motion-reduce:transition-none",
+              // Subdued at the point of interaction, never a blocking overlay
+              // (Requirement 14.7).
+              isPending(subtask.id) && "opacity-60",
             )}
           >
             <Checkbox
@@ -97,7 +105,9 @@ export function SubtaskList({
                 onOpen(subtask.id);
               }}
               className={cn(
-                "min-w-0 flex-1 truncate rounded text-left text-sm",
+                // `self-stretch`: the row is `h-11` on touch, so the button
+                // has to claim that height rather than just its text's.
+                "min-w-0 flex-1 self-stretch truncate rounded text-left text-sm",
                 "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-1",
                 subtask.isComplete
                   ? "text-ink-400 line-through"

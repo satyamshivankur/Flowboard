@@ -17,6 +17,7 @@ import {
 import type { MoveTaskResult, UpdateTaskInput } from "../slices/types";
 import { useStore } from "../store";
 
+import { usePermissions } from "./usePermissions";
 import { useScope } from "./useScope";
 
 /** An assignee reduced to what an avatar needs. */
@@ -59,6 +60,11 @@ export interface BoardViewModel {
   readonly isLoading: boolean;
   readonly isEmpty: boolean;
   readonly canEdit: boolean;
+  /**
+   * Why editing is refused, or undefined when it is not. A disabled control
+   * that cannot say why is a dead end (Requirement 8.11, 17.2).
+   */
+  readonly readOnlyReason: string | undefined;
   /** Other lists this user may move a task into. */
   readonly moveTargets: readonly {
     readonly id: string;
@@ -161,6 +167,7 @@ export function useBoard(
   const actions = useStore((state) => state.actions.task);
   const loadingListId = useStore((state) => state.loadingListId);
   const isHydrating = useStore((state) => state.isHydrating);
+  const permissions = usePermissions();
 
   /*
    * Permission, not emptiness. An earlier version tested whether the board had
@@ -253,6 +260,10 @@ export function useBoard(
       isLoading: isHydrating || loadingListId === listId,
       isEmpty: columns.every((column) => column.count === 0),
       canEdit,
+      readOnlyReason:
+        listId === null
+          ? undefined
+          : permissions.reasonFor("task:update", listId),
       moveTargets,
       members,
       onMoveTask,
@@ -269,6 +280,7 @@ export function useBoard(
       loadingListId,
       listId,
       canEdit,
+      permissions,
       moveTargets,
       members,
       onMoveTask,

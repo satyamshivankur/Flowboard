@@ -11,6 +11,8 @@ export interface TaskCardListProps {
   readonly rows: readonly TaskRowViewModel[];
   readonly now: string;
   readonly canEdit: boolean;
+  /** Whether a mutation on a given task is in flight (Requirement 14.7). */
+  readonly isPending: (taskId: string) => boolean;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
 }
@@ -28,6 +30,7 @@ export function TaskCardList({
   rows,
   now,
   canEdit,
+  isPending,
   onOpen,
   onToggleComplete,
 }: TaskCardListProps) {
@@ -36,6 +39,7 @@ export function TaskCardList({
       <div key={row.task.id} className={cn(depth > 0 && "ml-4")}>
         <Card
           interactive
+          pending={isPending(row.task.id)}
           padding="md"
           role="button"
           tabIndex={0}

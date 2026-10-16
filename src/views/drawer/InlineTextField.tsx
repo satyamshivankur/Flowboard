@@ -50,10 +50,16 @@ export function InlineTextField({
         }}
         className={cn(
           "w-full rounded-md px-2 py-1 text-left",
+          // A one-line title is about 2rem tall, which is under the touch
+          // minimum for what is the drawer's primary edit affordance.
+          "coarse-pointer:min-h-touch",
           "transition-colors motion-reduce:transition-none",
           "can-hover:hover:bg-surface-hover",
           "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-2",
-          "disabled:cursor-default disabled:hover:bg-transparent",
+          // Scoped under `can-hover` so it cancels the hover background set
+          // just above rather than standing as a bare `hover:` of its own —
+          // which is what the no-hover-dependence audit greps for.
+          "disabled:cursor-default can-hover:disabled:hover:bg-transparent",
           value.length === 0 && "text-ink-400",
           textClassName,
         )}

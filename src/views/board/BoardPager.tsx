@@ -23,7 +23,15 @@ export function BoardPager({ names, activeIndex, onSelect }: BoardPagerProps) {
   return (
     <nav
       aria-label="Board columns"
-      className="flex shrink-0 items-center justify-center gap-2 py-2 md:hidden"
+      /*
+       * Bottom-anchored on the one layout where it renders, so it needs the
+       * safe-area inset or the dots sit under a home indicator
+       * (Requirement 20.12).
+       */
+      className={cn(
+        "flex shrink-0 items-center justify-center gap-2 py-2 md:hidden",
+        "pb-[calc(env(safe-area-inset-bottom)+0.5rem)]",
+      )}
     >
       <p className="text-xs tabular-nums text-ink-400">
         {activeIndex + 1} of {names.length}

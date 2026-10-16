@@ -471,75 +471,107 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 7 — Cross-cutting polish
 
-- [ ] 17. Permission UX
-- [ ] 17.1 `PermissionDeniedState` for a selected list that is no longer visible
+- [x] 17. Permission UX
+- [x] 17.1 `PermissionDeniedState` for a selected list that is no longer visible
   - Offers navigation to a list the current user can see; closes a drawer open on a now-denied task
   - _Requirements: 8.13_
-- [ ] 17.2 Disable rather than hide capability-gated affordances, with a stated reason
+- [x] 17.2 Disable rather than hide capability-gated affordances, with a stated reason
   - Reason shown on hover where available and as inline helper text on coarse pointers, so it is never hover-only
+  - **Audit found two gaps.** Menu items carried the reason only in `title`, which a touch device can never surface; and the card's quick-action menu passed no reason at all, so a greyed "Delete task" simply refused. Both fixed
+  - `Menu` now renders the reason as a second line, shown under `coarse-pointer:`, wired through `aria-describedby` rather than left as bare text inside the button — as plain text it would have become part of the accessible name, and *only* on a coarse pointer, so the same item would be called two different things on two devices
+  - `ReadOnlyNotice` states it once per surface for the board and the list, matching the drawer's existing strip. The alternative — appending the reason to each control's label — turned "Add task to To do" into a sentence, and was reverted
   - _Requirements: 8.11, 8.12, 20.10_
-- [ ] 17.3 Distinguish permission-denied toasts from network-error toasts in tone and wording
+- [x] 17.3 Distinguish permission-denied toasts from network-error toasts in tone and wording
   - _Requirements: 14.5_
 
-- [ ] 18. Feedback, states and motion
-- [ ] 18.1 Audit every empty surface for a distinct empty state
+- [x] 18. Feedback, states and motion
+- [x] 18.1 Audit every empty surface for a distinct empty state
   - Empty list, empty column, no list selected, no search results, folder with no visible lists
   - _Requirements: 14.3, 6.8_
-- [ ] 18.2 Audit loading states for layout-shift-free skeletons on first load and list switch
+- [x] 18.2 Audit loading states for layout-shift-free skeletons on first load and list switch
   - _Requirements: 14.1, 14.2_
-- [ ] 18.3 Confirm destructive actions through `ConfirmContext`, naming target and cascade
+- [x] 18.3 Confirm destructive actions through `ConfirmContext`, naming target and cascade
+  - **Audit found one unguarded path**: deleting a subtask went straight through. Now confirmed like every other delete; no cascade to name, since depth is capped at 1
   - _Requirements: 14.9, 1.5, 2.12_
-- [ ] 18.4 Success toasts for non-obvious mutations only; none for inline edits
+- [x] 18.4 Success toasts for non-obvious mutations only; none for inline edits
   - _Requirements: 14.10_
-- [ ] 18.5 Verify hover, focus-visible, active and disabled states on every interactive element; no removed focus rings
+- [x] 18.5 Verify hover, focus-visible, active and disabled states on every interactive element; no removed focus rings
+  - Swept every `<button>` outside the primitives. One had no focus indicator at all: the list view's subtask disclosure chevron. Fixed
+  - The `focus:outline-none` occurrences are all paired with a `focus-visible:ring`, and menu items indicate keyboard focus through Headless UI's `data-focus`, so nothing relies on the removed default
   - _Requirements: 14.8, 17.1_
-- [ ] 18.6 Normalize transition durations to 120–200ms under `motion-safe:`
+- [x] 18.6 Normalize transition durations to 120–200ms under `motion-safe:`
+  - `Menu` and `Select` were at 100ms, under the floor; both now 150ms. Everything else was already 150 or 200
+  - `ScrollShadow`'s two edge fades had no reduced-motion guard. Fixed — it was the only file where the transition count exceeded the guard count
+  - Expressed as `motion-reduce:transition-none` rather than `motion-safe:`, which is the same guarantee written as an opt-out; noted here because the task wording says `motion-safe:`
   - _Requirements: 14.11_
-- [ ] 18.7 Point-of-interaction pending states — in-button spinners, subdued rows and cards, no global overlay
+- [x] 18.7 Point-of-interaction pending states — in-button spinners, subdued rows and cards, no global overlay
+  - `usePendingAction` wraps `useAction` with a set of in-flight keys. The board keys by task id, the list by row, the drawer by field name — the shape of the problem is identical, so it does not have three solutions
+  - A set rather than a boolean, because two mutations genuinely overlap under simulated latency: tick one card, drag another, and a single flag clears on the wrong one
+  - Every pending surface also sets `aria-busy`. Subdued opacity says nothing to a screen reader
   - _Requirements: 14.7_
 
 - [ ] 19. Responsive, space and density pass
-- [ ] 19.1 Verify independent scroll regions and that the page never scrolls vertically
+  - 19.1–19.5, 19.7 and 19.8 are done. 19.6, 19.9 and 19.10 are visual or device checks that cannot be made from here; each records what was verified statically and what was not
+- [x] 19.1 Verify independent scroll regions and that the page never scrolls vertically
   - _Requirements: 16.1_
-- [ ] 19.2 Wire the density toggle through every affected surface and verify persistence
+- [x] 19.2 Wire the density toggle through every affected surface and verify persistence
   - Confirm it is hidden below `md` and cannot reduce a touch target below `2.75rem`
+  - **The clamp was a comment, not a rule.** `src/index.css` claimed density was "clamped to comfortable below md"; the variant was a plain attribute selector with no condition on it. Only `TreeItem` was actually safe, and by accident — it happened to pair `density-compact:` with `can-hover:`
+  - The condition now lives in the variant: `density-compact` is wrapped in `@media (pointer: fine)`, so no `density-compact:` utility can shrink a target below the minimum however it is written. Verified against the emitted CSS, not just the source
+  - The condition is about the *pointer*, not the viewport — a tablet is wide and still coarse, which a width-based clamp would have missed
   - _Requirements: 16.3, 20.9_
-- [ ] 19.3 Audit truncation and tooltips across tree, breadcrumbs, cards and table cells
+- [x] 19.3 Audit truncation and tooltips across tree, breadcrumbs, cards and table cells
   - Confirm the full value is reachable without hover on coarse pointers
   - _Requirements: 16.6, 20.10_
-- [ ] 19.4 Progressively disclose secondary metadata rather than permanently occupying space
+- [x] 19.4 Progressively disclose secondary metadata rather than permanently occupying space
   - _Requirements: 16.8_
-- [ ] 19.5 Audit for mobile-first authoring, not just mobile-working
+- [x] 19.5 Audit for mobile-first authoring, not just mobile-working
   - Grep for `max-w`/`max-h` breakpoint variants and for any surface whose unprefixed classes describe the desktop layout; fix by inverting the class order rather than adding overrides
   - _Requirements: 20.1_
 - [ ] 19.6 Walk every surface at each breakpoint
   - `20rem`, `40rem`, `48rem`, `64rem`, `120rem` — sidebar, top bar, board, list view, drawer, menus, dialogs, toasts, empty states, skeletons
   - No horizontal page scroll, no clipped or overlapping content, no unreachable affordance at any width
+  - **Not verifiable here.** This is a visual walk and needs a browser. `src/views/Responsive.stories.tsx` sets the walk up — board, list and the whole shell at phone, tablet and laptop presets — and every story is smoke-rendered, but "nothing is clipped or overlapping" is a judgement no test in this repo makes
   - _Requirements: 20.2, 20.4, 20.5, 20.6, 20.7, 16.9_
-- [ ] 19.7 Verify touch targets across the app
+- [x] 19.7 Verify touch targets across the app
   - Every interactive target at least `2.75rem` in both dimensions on coarse pointers, including tree rows, menu items, card checkboxes, pager dots and icon buttons
+  - **Static audit, and it found five.** The primitives were all correct; the raw `<button>` elements in the views were not. A tree row was `h-11` while the button inside it was only as tall as its text, so the top and bottom of every row looked tappable and were not — same for subtask rows. Fixed with `self-stretch`, which makes the row's height the actual target
+  - Also fixed: the drawer's assignee trigger (`h-9`), the click-to-edit title field, and the list view's disclosure chevron and sort headers — the table renders from `md`, which includes tablets, so a coarse pointer at a wide viewport was getting a 1rem target
+  - Measured by reading classes rather than by hit-testing a device, so this verifies the authored sizes. 19.6 covers the visual half
   - _Requirements: 20.9_
-- [ ] 19.8 Verify no interaction depends on hover
+- [x] 19.8 Verify no interaction depends on hover
   - Every `can-hover`-gated affordance has a coarse-pointer equivalent that is visible or one tap away
   - _Requirements: 20.10, 15.10_
 - [ ] 19.9 Verify the layout at a 150% root font size
   - No clipping or overlap, and the breakpoint the layout receives shifts as expected because breakpoints are `rem`
+  - **Half-verified.** The mechanism is confirmed: breakpoints are declared in `rem`, `breakpoints.test.ts` fails if the CSS and the JS mirror drift, and a grep confirms nothing overrides the root font size (Requirement 22.8). So the breakpoint a user receives provably does shift
+  - The other half — that nothing clips or overlaps once it does — is the same visual judgement as 19.6 and needs a browser
   - _Requirements: 20.11, 22.6_
 - [ ] 19.10 Verify safe-area insets and dynamic viewport sizing
   - Bottom-anchored affordances clear notches and home indicators; no fixed element sits under mobile browser chrome
+  - **Audit found one gap, now fixed**: `BoardPager` is bottom-anchored on the only layout where it renders and had no inset, so its dots would have sat under a home indicator. The shell, the drawer and the toast stack already had theirs
+  - Every viewport dimension is `dvh`, never `vh`, and a grep confirms no `h-screen` survives anywhere
+  - Still unchecked because confirming it needs a notched device; the code is in place and the audit is recorded
   - _Requirements: 20.12, 20.13_
 
-- [ ] 20. Accessibility pass
-- [ ] 20.1 Verify tab order and accessible names on all icon-only controls
+- [x] 20. Accessibility pass
+- [x] 20.1 Verify tab order and accessible names on all icon-only controls
   - _Requirements: 17.1_
-- [ ] 20.2 Verify tree and table semantics with expanded/selected and sort state exposed
+- [x] 20.2 Verify tree and table semantics with expanded/selected and sort state exposed
   - _Requirements: 17.3, 17.4_
-- [ ] 20.3 Verify drag announcements and toast live region
+- [x] 20.3 Verify drag announcements and toast live region
   - _Requirements: 17.5, 17.6_
-- [ ] 20.4 Check AA contrast on tokens and confirm no status or priority is conveyed by color alone
+- [x] 20.4 Check AA contrast on tokens and confirm no status or priority is conveyed by color alone
+  - Done as a test, not a glance: `src/config/contrast.test.ts` parses `src/index.css`, computes WCAG relative luminance and asserts ratios for the pairings the app actually renders. A token nudged below the threshold now fails the build
+  - **It found six failures.** `ink-400` was 2.58:1 — and it carries every due date, count, timestamp and placeholder in the app. `warning-700` was 3.72:1 on its own tint, which is the read-only banner's own text. `priority-urgent`, `priority-high` and `priority-normal` were 3.83, 2.52 and 3.38 measured where `PriorityBadge` renders them: as *text* on the matching 50-level tint, not against white. `status-todo` was 2.32:1 as a pill dot
+  - All six darkened to computed values rather than re-picked by eye. The pairing that mattered — token-as-text-on-its-own-tint — is exactly the one a palette review does not look at
+  - `ink-400` is held to the 4.5:1 body-text threshold, not a graphics threshold: WCAG has no "it is only metadata" exemption. `ink-300` and `priority-none` are asserted as decorative, so promoting either to text would fail
+  - The colour-alone half is asserted structurally: every priority carries an icon and a label, every status category carries a label
   - _Requirements: 17.7_
-- [ ] 20.5 Verify the off-canvas sidebar and bottom sheet meet dialog expectations
+- [x] 20.5 Verify the off-canvas sidebar and bottom sheet meet dialog expectations
   - Focus trapped while open, Escape closes, focus restored to the trigger, background content not reachable by tab
+  - Both covered by tests. The sidebar test overrides `matchMedia` rather than resizing anything, because `isModal` is the one breakpoint this app observes from JavaScript and that query is precisely what it reads
+  - "Background not reachable" is asserted from the other direction, and it caught a test of mine: Headless UI hides the rest of the document from the accessibility tree while a modal is open, which is why asserting on the board *through* an open drawer fails. That is the requirement working
   - _Requirements: 17.2, 20.4, 20.7_
 
 ---
