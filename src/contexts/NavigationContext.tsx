@@ -35,9 +35,16 @@ export const useNavigation = useValue;
 export function NavigationProvider({
   children,
   initialListId = null,
+  /**
+   * Starts with the drawer open on a task. Exists so a story or a test can
+   * review the drawer directly, rather than having to drive a click through
+   * the board to reach it.
+   */
+  initialOpenTaskId = null,
 }: {
   children: ReactNode;
   initialListId?: string | null;
+  initialOpenTaskId?: string | null;
 }) {
   const [selectedListId, setSelectedListId] = useState<string | null>(
     initialListId,
@@ -46,7 +53,9 @@ export function NavigationProvider({
     const stored = readPreference<string>(VIEW_KEY, DEFAULT_VIEW);
     return isViewId(stored) ? stored : DEFAULT_VIEW;
   });
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(
+    initialOpenTaskId,
+  );
   const [searchOpen, setSearchOpen] = useState(false);
 
   const selectList = useCallback((listId: string | null) => {

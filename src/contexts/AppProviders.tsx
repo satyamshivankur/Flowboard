@@ -22,17 +22,22 @@ export function AppProviders({
   children,
   initialListId = null,
   initialExpandedIds = [],
+  initialOpenTaskId = null,
 }: {
   children: ReactNode;
   initialListId?: string | null;
   initialExpandedIds?: readonly string[];
+  initialOpenTaskId?: string | null;
 }) {
   return (
     <ToastProvider>
       <SimulationProvider>
         <DensityProvider>
           <SidebarProvider initialExpandedIds={initialExpandedIds}>
-            <NavigationProvider initialListId={initialListId}>
+            <NavigationProvider
+              initialListId={initialListId}
+              initialOpenTaskId={initialOpenTaskId}
+            >
               <ConfirmProvider>{children}</ConfirmProvider>
             </NavigationProvider>
           </SidebarProvider>

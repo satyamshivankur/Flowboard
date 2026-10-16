@@ -6,6 +6,7 @@ import { useSidebar } from "@/contexts/SidebarContext";
 import { useSelectedList } from "@/controllers/hooks/useSelectedList";
 import { useSession } from "@/controllers/hooks/useSession";
 
+import { TaskDrawer } from "./drawer/TaskDrawer";
 import { ConfirmHost } from "./hosts/ConfirmHost";
 import { ToastHost } from "./hosts/ToastHost";
 import { Sidebar } from "./sidebar/Sidebar";
@@ -99,6 +100,13 @@ export function AppShell() {
           {renderContent()}
         </main>
       </div>
+
+      {/*
+        Mounted once at the shell rather than per view, so switching between
+        board and list does not close an open task — and so previous/next
+        triage works from either view.
+      */}
+      <TaskDrawer orderedTaskIds={selected.orderedTaskIds} />
 
       <ToastHost />
       <ConfirmHost />

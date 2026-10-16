@@ -385,13 +385,14 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 13.3. The boilerplate `src/App.css` SHALL be deleted and the boilerplate rules in `src/index.css` replaced.
 
-13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly three, each annotated in code and listed in the README:
+13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly four, each annotated in code and listed in the README. What they share is that the value is produced per pointer event or per frame, which no static class can express:
 
 | Exception                                                   | Why it cannot be a class                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | dnd-kit's `transform` and `transition` on sortable items    | Recomputed per frame from pointer position                                                                                                                                                                                                                  |
 | The sidebar resizer's live width                            | A user-dragged value, written in `rem` and clamped to the token range                                                                                                                                                                                       |
 | Positioned overlay coordinates — the tooltip's `top`/`left` | A viewport position from `getBoundingClientRect`. Required because an absolutely positioned overlay is clipped by any ancestor with `overflow` set, and `z-index` cannot escape an overflow clip, so such overlays must be portalled and positioned `fixed` |
+| The bottom sheet's live drag-to-dismiss offset             | A per-pointer-event translation, converted from the pointer's `clientY` travel into `rem` before it is written                                                                                                                                              |
 
 13.4.1. Any overlay that can appear inside a scrolling or clipping region — tooltips, and any popover not already handled by Headless UI's anchoring — SHALL be rendered in a portal and positioned against the viewport. Rem-derived offsets SHALL be converted against the real root font size rather than an assumed 16px, so overlay spacing scales with the rest of the layout.
 
@@ -704,7 +705,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Hairline borders, rings and dividers (`border`, `ring-1`, `divide-y`) | A border is a rendering detail, not a layout dimension. Scaling a hairline with root font size produces blurred sub-pixel edges. Tailwind's defaults are `1px` by design. |
 | `box-shadow` offsets, blur and spread                                 | Cosmetic depth, not layout. Shadows should not grow with user font size.                                                                                                  |
-| dnd-kit sensor activation distance and touch tolerance                | A pointer-movement threshold in device pixels, not a dimension that is rendered.                                                                                          |
+| Pointer-travel thresholds — dnd-kit's activation distance and touch tolerance, and the bottom sheet's drag-to-dismiss threshold | Compared against `clientX`/`clientY`, which the browser reports in CSS pixels. A threshold is not a dimension that is rendered, so there is no `rem` equivalent to express it in. |
 | Raster asset intrinsic dimensions, if any are added                   | A pixel count is the correct unit for a pixel buffer.                                                                                                                     |
 
 22.5. Every exception taken SHALL be annotated in code and listed in the README alongside the inline-`style` exception list of 19.9.

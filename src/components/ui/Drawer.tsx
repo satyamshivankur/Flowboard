@@ -3,7 +3,13 @@ import {
   DialogBackdrop,
   DialogPanel,
 } from "@headlessui/react";
-import type { ReactNode, RefObject } from "react";
+import {
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { cn } from "@/lib/cn";
 import { useLatched } from "@/lib/useLatched";
@@ -47,6 +53,15 @@ const CLOSED: Record<DrawerSide, string> = {
   left: "data-closed:-translate-x-full",
 };
 
+/**
+ * How far the sheet must be dragged down before release dismisses it.
+ *
+ * px-exception: a pointer-travel threshold measured against `clientY`, which
+ * the browser reports in CSS pixels. It is not a rendered dimension, so there
+ * is no `rem` equivalent to express it in (Requirement 22.4, 22.5).
+ */
+const DISMISS_THRESHOLD_PX = 96;
+
 export function Drawer({
   open,
   onClose,
@@ -69,6 +84,43 @@ export function Drawer({
   const exitLabel = useLatched(label, open);
   const exitChildren = useLatched(children, open);
 
+  /*
+   * Drag-to-dismiss, for the sheet form only.
+   *
+   * The handle carries `md:hidden`, so above `md` it is not in the layout and
+   * these handlers can never fire — the gesture is gated by the same CSS that
+   * decides sheet versus panel, with no viewport check in JavaScript
+   * (Requirement 20.7).
+   */
+  const dragOrigin = useRef<number | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+
+  const isSheet = exitSide === "bottom" || exitSide === "right";
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    dragOrigin.current = event.clientY;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const origin = dragOrigin.current;
+
+    if (origin === null) return;
+
+    // Downward only. Dragging a bottom sheet upward should do nothing rather
+    // than detach it from the edge it is anchored to.
+    setDragOffset(Math.max(0, event.clientY - origin));
+  }
+
+  function handlePointerUp() {
+    const travelled = dragOffset;
+
+    dragOrigin.current = null;
+    setDragOffset(0);
+
+    if (travelled >= DISMISS_THRESHOLD_PX) onClose();
+  }
+
   return (
     <HeadlessDialog
       open={open}
@@ -88,6 +140,17 @@ export function Drawer({
 
       <DialogPanel
         transition
+        /*
+         * The live drag offset — the fourth documented inline-`style`
+         * exception, alongside dnd-kit transforms, the sidebar resizer width
+         * and tooltip coordinates. A per-pointer-event value cannot be a
+         * utility class (Requirement 13.4).
+         */
+        style={
+          dragOffset > 0
+            ? { transform: `translateY(${String(dragOffset / 16)}rem)` }
+            : undefined
+        }
         className={cn(
           "fixed flex flex-col bg-surface shadow-overlay",
           // `dvh` rather than `vh`: mobile browser chrome overlaps a vh-sized
@@ -98,9 +161,34 @@ export function Drawer({
           SIDE[exitSide],
           CLOSED[exitSide],
           exitWidth,
+          // The panel must not animate back while a finger is still on it.
+          dragOffset > 0 && "transition-none",
           className,
         )}
       >
+        {isSheet && (
+          /*
+           * The grab handle: a pointer affordance only, and deliberately not
+           * focusable. Escape and the caller's own close control already serve
+           * the keyboard, so adding a third close target would only clutter
+           * the tab order — and it would take initial focus, since Headless UI
+           * focuses the first focusable element in the panel.
+           *
+           * `touch-none` stops the browser treating the gesture as a scroll
+           * before the handler sees it.
+           */
+          <div
+            aria-hidden
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            className="flex shrink-0 cursor-grab touch-none justify-center py-2 md:hidden"
+          >
+            <span className="h-1 w-10 rounded-full bg-border" />
+          </div>
+        )}
+
         {exitChildren}
       </DialogPanel>
     </HeadlessDialog>

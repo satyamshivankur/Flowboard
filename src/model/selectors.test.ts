@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { Capability } from "@/config/capabilities";
 import { PAGE_SIZE } from "@/config/limits";
 import { aContainer, aState, aStatus, aTask, scopeFor } from "@/test/fixtures";
 
@@ -9,6 +10,7 @@ import {
   flattenTree,
   selectBoardColumns,
   selectBreadcrumb,
+  selectEditableLists,
   selectExpansionPath,
   selectFirstVisibleList,
   selectPaginatedRows,
@@ -18,6 +20,7 @@ import {
   selectTaskRows,
   selectTerminalStatus,
   selectTopLevelTasks,
+  selectVisibleLists,
   selectVisibleTree,
 } from "./selectors";
 import type { SortState, Task } from "./types";
@@ -122,7 +125,11 @@ describe("sorting", () => {
     );
 
     expect(ascending.map((t) => t.id)).toEqual(["t-early", "t-late", "t-null"]);
-    expect(descending.map((t) => t.id)).toEqual(["t-late", "t-early", "t-null"]);
+    expect(descending.map((t) => t.id)).toEqual([
+      "t-late",
+      "t-early",
+      "t-null",
+    ]);
   });
 
   it("sorts by status using column order, not status name", () => {
@@ -250,7 +257,14 @@ describe("status remapping", () => {
           position: 1000,
         }),
       ],
-      users: [{ id: "u-a", name: "A", email: "a@t.test", avatarToken: "avatar-indigo" }],
+      users: [
+        {
+          id: "u-a",
+          name: "A",
+          email: "a@t.test",
+          avatarToken: "avatar-indigo",
+        },
+      ],
       memberships: [{ workspaceId: "ws-test", userId: "u-a", role: "admin" }],
     });
 
@@ -294,9 +308,7 @@ describe("breadcrumbs and expansion", () => {
   });
 
   it("excludes the node itself from the expansion path", () => {
-    expect(
-      selectExpansionPath(state, alice, SEED_IDS.lists.sprint14),
-    ).toEqual([
+    expect(selectExpansionPath(state, alice, SEED_IDS.lists.sprint14)).toEqual([
       SEED_IDS.workspace,
       SEED_IDS.spaces.engineering,
       SEED_IDS.folders.q2,
@@ -401,5 +413,38 @@ describe("subtasks", () => {
     );
 
     expect(selectSubtasks(state, bob, infraTask?.id ?? "")).toEqual([]);
+  });
+});
+
+describe("editable lists", () => {
+  /*
+   * Move-to-list must offer destinations the user can write to, not merely
+   * ones they can see. Today those sets coincide for every seeded role, so the
+   * distinction is only observable against a capability table that separates
+   * them — which is exactly the view-only role the policy table makes possible
+   * (Requirement 2.6, 7.9, 21.7).
+   */
+  const viewOnly = {
+    member: new Set<Capability>(["task:reorder"]),
+  };
+
+  it("matches the visible lists for a role that can create tasks", () => {
+    expect(selectEditableLists(state, bob).map((list) => list.id)).toEqual(
+      selectVisibleLists(state, bob).map((list) => list.id),
+    );
+  });
+
+  it("is empty for a role that can see lists but not write to them", () => {
+    expect(selectVisibleLists(state, bob).length).toBeGreaterThan(0);
+    expect(selectEditableLists(state, bob, viewOnly)).toEqual([]);
+  });
+
+  it("still excludes lists the user cannot see", () => {
+    // Bob is denied Infra outright, so no capability table can surface it.
+    expect(
+      selectEditableLists(state, bob).some(
+        (list) => list.id === SEED_IDS.lists.infra,
+      ),
+    ).toBe(false);
   });
 });

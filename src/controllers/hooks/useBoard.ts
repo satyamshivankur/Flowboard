@@ -1,12 +1,18 @@
 import { useCallback, useMemo } from "react";
 
+import type { AvatarColorToken } from "@/config/avatars";
 import { PRIORITY_CONFIG, type Priority } from "@/config/priorities";
 import type { StatusColorToken } from "@/config/statusCategories";
 import { dueDateTone, type DueDateTone } from "@/lib/date";
 import { subtasksOf } from "@/model/hierarchy";
 import { can } from "@/model/permissions";
 import type { Result } from "@/model/result";
-import { selectAssignees, selectBoardColumns } from "@/model/selectors";
+import {
+  selectAssignees,
+  selectBoardColumns,
+  selectEditableLists,
+  selectWorkspaceMembers,
+} from "@/model/selectors";
 
 import type { MoveTaskResult, UpdateTaskInput } from "../slices/types";
 import { useStore } from "../store";
@@ -18,12 +24,15 @@ export interface AssigneeViewModel {
   readonly id: string;
   readonly name: string;
   readonly initials: string;
-  readonly avatarToken: string;
+  /** Token, not a class — `Avatar` resolves it through the shared map. */
+  readonly avatarToken: AvatarColorToken;
 }
 
 /** A task card's props, with every display decision already resolved. */
 export interface TaskCardViewModel {
   readonly id: string;
+  /** The task's current status, so a quick-change menu can exclude it. */
+  readonly statusId: string;
   readonly title: string;
   readonly priority: Priority;
   readonly priorityLabel: string;
@@ -50,6 +59,20 @@ export interface BoardViewModel {
   readonly isLoading: boolean;
   readonly isEmpty: boolean;
   readonly canEdit: boolean;
+  /** Other lists this user may move a task into. */
+  readonly moveTargets: readonly {
+    readonly id: string;
+    readonly name: string;
+  }[];
+  /** Workspace members, so a card can assign without opening the drawer. */
+  readonly members: readonly {
+    readonly id: string;
+    readonly name: string;
+  }[];
+  readonly onMoveToList: (
+    taskId: string,
+    toListId: string,
+  ) => Promise<Result<unknown>>;
   readonly onMoveTask: (
     taskId: string,
     toStatusId: string,
@@ -98,6 +121,7 @@ export function buildTaskCard(
 
   return {
     id: task.id,
+    statusId: task.statusId,
     title: task.title,
     priority: task.priority,
     priorityLabel: priority.label,
@@ -199,13 +223,40 @@ export function useBoard(
     [actions, scope],
   );
 
+  const onMoveToList = useCallback(
+    (taskId: string, toListId: string) =>
+      actions.moveToList(scope, taskId, toListId),
+    [actions, scope],
+  );
+
+  /** Lists other than this one that the user may write to. */
+  const moveTargets = useMemo(
+    () =>
+      selectEditableLists(state, scope)
+        .filter((list) => list.id !== listId)
+        .map((list) => ({ id: list.id, name: list.name })),
+    [state, scope, listId],
+  );
+
+  const members = useMemo(
+    () =>
+      selectWorkspaceMembers(state, scope).map((user) => ({
+        id: user.id,
+        name: user.name,
+      })),
+    [state, scope],
+  );
+
   return useMemo(
     () => ({
       columns,
       isLoading: isHydrating || loadingListId === listId,
       isEmpty: columns.every((column) => column.count === 0),
       canEdit,
+      moveTargets,
+      members,
       onMoveTask,
+      onMoveToList,
       onQuickUpdate,
       onToggleComplete,
       onCreateTask,
@@ -218,7 +269,10 @@ export function useBoard(
       loadingListId,
       listId,
       canEdit,
+      moveTargets,
+      members,
       onMoveTask,
+      onMoveToList,
       onQuickUpdate,
       onToggleComplete,
       onCreateTask,

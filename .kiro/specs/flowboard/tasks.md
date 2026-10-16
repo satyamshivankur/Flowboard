@@ -258,6 +258,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - `Sheet` was dropped as a separate component: it is `Drawer` with `side="bottom"`, and `side="right"` already renders as a bottom sheet below `md`. A second component would have been the same element with different defaults
   - Focus trap, Escape, focus restore, ARIA wiring inherited from Headless UI
   - `Drawer` takes a `side` of `'right' | 'bottom'` so the same component serves the desktop panel and the mobile sheet; `Sheet` is the bottom preset with `max-h-[92dvh]` and a drag-to-dismiss affordance
+  - Drag-to-dismiss landed with Phase 6, since the task drawer is its only real consumer. The grab handle carries `md:hidden`, so above `md` it is not in the layout and the pointer handlers cannot fire — the gesture is gated by the same CSS that chooses sheet versus panel, with no viewport check in JavaScript. The handle is deliberately not focusable: Escape and the caller's own close control already serve the keyboard, and a focusable handle would take initial focus since Headless UI focuses the first focusable element in the panel
   - `Menu` and `Select` panels are width-constrained in `rem` and flip to a sheet below `40rem`, since a dropdown anchored near a screen edge is unusable on a phone
   - `Tooltip` suppresses itself on coarse pointers, where it would either never fire or fire on tap and block the tap
   - _Requirements: 11.2, 13.10, 17.1, 17.2, 20.7, 20.10_
@@ -285,13 +286,16 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 20.3, 20.14_
 - [x] 11.2 Write a story per primitive covering variants, sizes and disabled/loading/error states
   - _Requirements: 11.7_
-- [ ] 11.3 Write fixture-driven composite stories
+- [x] 11.3 Write fixture-driven composite stories
   - `TaskCard`, `KanbanColumn`, `SidebarTree`, `TaskDrawer`, `EmptyState`, wrapped in `AppProviders` with a seeded store
-  - **Blocked until Phases 5–6**: these components do not exist yet. `EmptyState` is covered by the `Feedback` stories; the rest land with their views
+  - `src/views/Composites.stories.tsx`. View-models are built with the real `buildTaskCard` and the real `useVisibleTree` against `createSeedState()`, so a change to a selector shows up in the workbench rather than only in the assembled app. `SEED_NOW` is the reference time, which is what makes "overdue" and "due today" render the same every day
+  - `NavigationProvider` gained `initialOpenTaskId` so the drawer is reviewable directly instead of requiring a click through the board to reach it
+  - `src/views/stories.test.tsx` renders every exported story. `build-storybook` only proves a story *bundles*; a story that throws on render still builds and then silently misrepresents the component it documents
   - _Requirements: 11.8_
-- [ ] 11.4 Add responsive stories for every surface that changes shape
+- [x] 11.4 Add responsive stories for every surface that changes shape
   - Board, list view, drawer, sidebar and top bar at base and at `md`, so responsive behaviour is reviewable per component rather than only in the assembled app
-  - **Partly done**: viewport presets are registered and `Drawer` already demonstrates the sheet/panel swap across them. The board, list view, sidebar and top bar stories land with those views
+  - `src/views/Responsive.stories.tsx`: board at phone and desktop, list at phone and desktop, and the whole shell at phone, tablet and laptop — the last of which is where the sidebar stops being off-canvas
+  - No separate drawer viewport story: `UI/Overlays` already demonstrates the sheet/panel swap on the `Drawer` primitive itself, and duplicating it here would be two places to keep in step
   - _Requirements: 20.14_
 
 ---
@@ -352,27 +356,32 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 ## Phase 6 — Views
 
 - [ ] 14. Build the kanban board
-- [ ] 14.1 `KanbanBoard` and `KanbanColumn`
+  - Everything below is done except the manual touch-gesture confirmation in 14.7.1, which needs a real device
+- [x] 14.1 `KanbanBoard` and `KanbanColumn`
   - One column per list status in position order; per-column vertical scroll with sticky headers
   - Base: one column at a time, `w-column-mobile snap-center` inside `snap-x snap-mandatory`, with a pager indicator showing position in the column set
   - `md` and above: `w-column` columns side by side with horizontal board scroll
+  - The header is a sibling of the scroll container rather than `sticky` inside it, which is stronger: it cannot scroll away at all, and there is no stacking-context interaction with the drag overlay
+  - `BoardPager` renders the position indicator — a dot per column plus "2 of 3" — below `md` only. The active column is derived from scroll position, so a flick, a snap and a tap on a dot all agree
   - _Requirements: 4.1, 4.10, 16.5, 20.5_
-- [ ] 14.2 Column headers — color indicator, name, count, add-task affordance
+- [x] 14.2 Column headers — color indicator, name, count, add-task affordance
   - _Requirements: 4.2_
-- [ ] 14.3 `TaskCard`
+- [x] 14.3 `TaskCard`
   - Title (2-line clamp + tooltip), priority indicator, assignee avatars, due date, subtask count
   - _Requirements: 4.3, 15.9, 16.6_
-- [ ] 14.4 Card interactions
+- [x] 14.4 Card interactions
   - Hover elevation; reveal of secondary affordances via `can-hover:group-hover` and `can-hover:group-focus-within`, so coarse pointers get them persistently visible instead of unreachable
   - Body click opens the drawer with `stopPropagation` on interactive children; inline complete checkbox at `2.75rem` on touch
   - _Requirements: 15.1, 15.4, 15.7, 20.9, 20.10_
-- [ ] 14.5 Card overflow quick-action menu
+- [x] 14.5 Card overflow quick-action menu
   - Open, change status, change priority, assign, set due date, move to list, duplicate, delete — all applied inline, all permission-checked, all also present in the drawer
   - _Requirements: 15.2, 15.3, 15.10_
-- [ ] 14.6 Card keyboard operability
+- [x] 14.6 Card keyboard operability
   - Focusable, Enter opens, overflow menu reachable without a pointer
+  - **Bug found and fixed**: the card spread dnd-kit's `listeners` and then set its own `onKeyDown`, which *replaced* the `KeyboardSensor` activator. Keyboard dragging never started, while `aria-roledescription="sortable"` went on advertising it — a silent failure, since nothing throws. The handler now composes: dnd-kit sees the event first and we act only on what it ignored
+  - Key meanings are disjoint by configuration, not by luck: `keyboardCodes` narrows dnd-kit's `start`/`end` to Space, leaving Enter to mean "open the drawer" and nothing else. dnd-kit's default includes Enter in `start`, which would have made one key do two things
   - _Requirements: 15.5, 17.1_
-- [ ] 14.7 Wire `DndContext` with pointer, touch and keyboard sensors
+- [x] 14.7 Wire `DndContext` with pointer, touch and keyboard sensors
   - `PointerSensor` at 8px activation distance so clicks are not swallowed; `TouchSensor` at 200ms delay and 8px tolerance so swipes scroll and page rather than drag; `KeyboardSensor` with sortable coordinates
   - `SortableContext` per column; `useDroppable` per column for cross-column moves
   - Annotate the two numeric thresholds as documented `px` exceptions
@@ -380,72 +389,82 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [ ] 14.7.1 Verify touch drag against mobile column paging
   - Confirm a vertical swipe scrolls, a horizontal swipe pages columns, and only a long press starts a drag
   - Confirm status change and reorder are both reachable without dragging, from the card menu and the drawer
+  - **Second bullet done**: the card menu carries "Move up", "Move down" and a status item per sibling status, all covered by tests. Reordering no longer requires a drag of any kind
+  - **First bullet unverified**: the `TouchSensor` delay and tolerance are configured and reasoned about, but jsdom has no touch model and no device was available here. This needs a real phone, so it stays unchecked rather than claimed
   - _Requirements: 20.8_
-- [ ] 14.8 Drag visuals
+- [x] 14.8 Drag visuals
   - `DragOverlay` with a tilted elevated clone, subdued same-size placeholder in the source slot, highlighted drop-target column and insertion point
+  - The insertion point is the gap `verticalListSortingStrategy` opens, rather than a separate drawn line: one fewer element, and it cannot disagree with where the drop will actually land
   - _Requirements: 4.6, 15.6_
-- [ ] 14.9 Drop handling and cancellation
+- [x] 14.9 Drop handling and cancellation
   - Compute target status and fractional position from drop-index neighbours; Escape or an invalid drop mutates nothing
   - _Requirements: 4.4, 4.5, 4.7_
-- [ ] 14.10 Optimistic apply with visible rollback and error toast
+- [x] 14.10 Optimistic apply with visible rollback and error toast
   - _Requirements: 4.8, 14.12, 23.3_
-- [ ] 14.11 Empty columns that are also valid drop targets
+- [x] 14.11 Empty columns that are also valid drop targets
   - _Requirements: 4.9_
-- [ ] 14.12 dnd-kit live-region announcements for pick-up, over and drop
+- [x] 14.12 dnd-kit live-region announcements for pick-up, over and drop
   - _Requirements: 4.11, 17.5_
-- [ ] 14.13 Board column skeletons on first load and list switch
+- [x] 14.13 Board column skeletons on first load and list switch
   - _Requirements: 14.1, 14.2_
 
-- [ ] 15. Build the list view
-- [ ] 15.1 `TaskTable` and `TaskRow` with real table semantics, from `md` upward
+- [x] 15. Build the list view
+- [x] 15.1 `TaskTable` and `TaskRow` with real table semantics, from `md` upward
   - Title, status, assignees, priority, due date; sticky header; flexible title column, content-width remainder
   - _Requirements: 5.1, 5.6, 16.7, 17.4_
-- [ ] 15.1.1 `TaskCardList` — the base-viewport form of the list view
+- [x] 15.1.1 `TaskCardList` — the base-viewport form of the list view
   - Stacked cards showing title, status, priority, due date and assignees; same drawer on tap; same sort options
   - Both forms driven by the same `useTaskTable` hook and toggled with `md:hidden` / `hidden md:block`; `display: none` keeps the inactive form out of the accessibility tree and tab order, so no JavaScript breakpoint check is needed
   - _Requirements: 20.6_
-- [ ] 15.2 Sorting by due date and priority
+- [x] 15.2 Sorting by due date and priority
   - Both directions, active column and direction indicated, ranking from `PRIORITY_CONFIG[p].rank`, null due dates always last, sort direction exposed to assistive technology
   - Table headers at `md` and above; a sort dropdown at base, exposing the identical option set
   - _Requirements: 5.2, 5.3, 5.4, 17.4, 20.6, 21.6_
-- [ ] 15.3 Row click opens the task drawer
+- [x] 15.3 Row click opens the task drawer
   - _Requirements: 5.5_
-- [ ] 15.4 Nested subtask rows with a disclosure control, excluded from the top level
+- [x] 15.4 Nested subtask rows with a disclosure control, excluded from the top level
   - _Requirements: 5.7_
-- [ ] 15.5 Shared status and priority tokens with the board
+- [x] 15.5 Shared status and priority tokens with the board
   - _Requirements: 5.8, 13.6_
-- [ ] 15.6 Empty state with a primary create-task action
+- [x] 15.6 Empty state with a primary create-task action
   - _Requirements: 5.9, 14.3_
-- [ ] 15.7 Simulated offset pagination with a load-more control
+- [x] 15.7 Simulated offset pagination with a load-more control
   - _Requirements: 9.12_
 
-- [ ] 16. Build the task drawer
-- [ ] 16.1 `TaskDrawer` on the Headless UI `Dialog` primitive
+- [x] 16. Build the task drawer
+- [x] 16.1 `TaskDrawer` on the Headless UI `Dialog` primitive
   - Closes on Escape, overlay click and explicit button; focus moves in, is trapped, and returns to the trigger
   - Full-height bottom sheet at base (`max-h-[92dvh]`, drag-to-dismiss, safe-area padding), right-side panel at `md` (`w-drawer`) and `xl` (`w-drawer-xl`)
   - Identical content, field behaviour and close affordances in both forms
   - _Requirements: 7.1, 7.2, 7.3, 17.2, 20.7, 20.12_
-- [ ] 16.2 `PropertyRow` label/value grid with uniform row height and spacing
+- [x] 16.2 `PropertyRow` label/value grid with uniform row height and spacing
   - _Requirements: 7.6, 13.8_
-- [ ] 16.3 Inline title and description editing
+- [x] 16.3 Inline title and description editing
   - Save on blur and ⌘/Ctrl+Enter; Escape reverts the focused field rather than closing the drawer
   - _Requirements: 7.4, 7.5_
-- [ ] 16.4 Property controls — `StatusPicker`, `PriorityPicker`, `AssigneePicker`, `DueDatePicker`
+- [x] 16.4 Property controls — `StatusPicker`, `PriorityPicker`, `AssigneePicker`, `DueDatePicker`
   - Status options restricted to the task's list status set
+  - **Deviation**: these are not four named components. Each is a `Select`, `Menu` or `Input` inside a `PropertyRow`, because a `StatusPicker` would have been a one-line wrapper over `Select` whose only job was to pass `renderValue`. Four such wrappers are four more files to keep in step with the primitive for no behaviour of their own
+  - Due-date presets come from `DUE_DATE_PRESETS` and `dueDateAtDays`, shared with the card menu, so "tomorrow" cannot mean two different instants
   - _Requirements: 2.5, 3.5, 7.4_
-- [ ] 16.5 Per-field pending indicator and revert-with-toast on failure
+- [x] 16.5 Per-field pending indicator and revert-with-toast on failure
+  - `PropertyRow` takes `pending`, and the drawer tracks *which* field is saving rather than merely whether something is — a single global spinner cannot say that the status change landed while the assignee change is still in flight
+  - The indicator sits on the row's label, not inside the control, so a select does not change size mid-save and shift every row below it
+  - Every drawer write goes through `useAction`, which is what turns the Model's rollback into something a user can see (Requirement 14.4)
   - _Requirements: 7.7, 14.7_
-- [ ] 16.6 Read-only metadata — breadcrumb path, created and updated timestamps
+- [x] 16.6 Read-only metadata — breadcrumb path, created and updated timestamps
   - _Requirements: 7.8_
-- [ ] 16.7 Move-to-list action limited to lists the user can edit, surfacing status remapping when it occurs
+- [x] 16.7 Move-to-list action limited to lists the user can edit, surfacing status remapping when it occurs
+  - Destinations come from `selectEditableLists`, not `selectVisibleLists`. The two coincide for every seeded role, but the capability table is configuration — a view-only role is one entry away, and offering it a destination that would refuse it is the bug that entry would introduce
+  - A successful move whose `statusRemapped` flag is set pushes an info toast explaining that the destination list had no matching status
   - _Requirements: 2.6, 7.9_
-- [ ] 16.8 `SubtaskList` — create, toggle, open, delete, depth-1 enforced
+- [x] 16.8 `SubtaskList` — create, toggle, open, delete, depth-1 enforced
   - _Requirements: 2.11, 2.12_
-- [ ] 16.9 Read-only drawer state when the user lacks `task:update`, with an explanatory note
+- [x] 16.9 Read-only drawer state when the user lacks `task:update`, with an explanatory note
   - _Requirements: 7.10, 8.12_
-- [ ] 16.10 Previous/next task keyboard navigation within the current view
+- [x] 16.10 Previous/next task keyboard navigation within the current view
   - _Requirements: 7.11_
-- [ ] 16.11 Enter/exit transition under 200ms, wrapped in `motion-safe:`
+- [x] 16.11 Enter/exit transition under 200ms, wrapped in `motion-safe:`
   - _Requirements: 7.12, 14.11_
 
 ---

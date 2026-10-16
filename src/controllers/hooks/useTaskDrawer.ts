@@ -1,20 +1,29 @@
 import { useCallback, useMemo } from "react";
 
+import type { AvatarColorToken } from "@/config/avatars";
 import { PRIORITY_CONFIG, type Priority } from "@/config/priorities";
+import type { StatusColorToken } from "@/config/statusCategories";
 import { formatRelative } from "@/lib/date";
 import type { Result } from "@/model/result";
 import {
   selectAssignees,
   selectBreadcrumb,
+  selectEditableLists,
   selectStatusesForList,
   selectSubtasks,
   selectTask,
-  selectVisibleLists,
   selectWorkspaceMembers,
 } from "@/model/selectors";
 
 import type { MoveTaskResult, UpdateTaskInput } from "../slices/types";
 import { useStore } from "../store";
+
+/*
+ * Re-exported so a View can type a field-save payload without reaching into
+ * `controllers/slices`, which the boundary lint forbids — correctly: the slice
+ * module is the Controller's internals, and a hook is its public surface.
+ */
+export type { UpdateTaskInput };
 
 import { usePermissions } from "./usePermissions";
 import { useScope } from "./useScope";
@@ -22,7 +31,15 @@ import { useScope } from "./useScope";
 export interface DrawerStatusOption {
   readonly id: string;
   readonly name: string;
-  readonly colorToken: string;
+  /** Token, not a class — `StatusPill` resolves it through the shared map. */
+  readonly colorToken: StatusColorToken;
+}
+
+/** A workspace member, reduced to what an avatar and a picker need. */
+export interface DrawerMember {
+  readonly id: string;
+  readonly name: string;
+  readonly avatarToken: AvatarColorToken;
 }
 
 export interface DrawerSubtask {
@@ -46,16 +63,8 @@ export interface DrawerViewModel {
   readonly createdLabel: string;
   readonly updatedLabel: string;
   readonly statuses: readonly DrawerStatusOption[];
-  readonly members: readonly {
-    id: string;
-    name: string;
-    avatarToken: string;
-  }[];
-  readonly assignees: readonly {
-    id: string;
-    name: string;
-    avatarToken: string;
-  }[];
+  readonly members: readonly DrawerMember[];
+  readonly assignees: readonly DrawerMember[];
   readonly subtasks: readonly DrawerSubtask[];
   readonly moveTargets: readonly { id: string; name: string }[];
   /** False when the user may view but not edit — the drawer renders read-only. */
@@ -170,7 +179,7 @@ export function useTaskDrawer(
           name: user.name,
           avatarToken: user.avatarToken,
         })),
-        moveTargets: selectVisibleLists(state, scope)
+        moveTargets: selectEditableLists(state, scope)
           .filter((list) => list.id !== task.primaryListId)
           .map((list) => ({ id: list.id, name: list.name })),
       };

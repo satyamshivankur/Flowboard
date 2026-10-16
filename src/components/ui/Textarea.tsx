@@ -9,22 +9,25 @@ import {
 
 import { cn } from "@/lib/cn";
 
-export interface TextareaProps
-  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className"> {
-  readonly label?: string;
-  readonly labelHidden?: boolean;
-  readonly error?: string;
-  readonly hint?: string;
-  readonly maxLength?: number;
-  readonly showCount?: boolean;
+export interface TextareaProps extends Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  "className"
+> {
+  /* Optional props admit `| undefined` — see the note on `InputProps`. */
+  readonly label?: string | undefined;
+  readonly labelHidden?: boolean | undefined;
+  readonly error?: string | undefined;
+  readonly hint?: string | undefined;
+  readonly maxLength?: number | undefined;
+  readonly showCount?: boolean | undefined;
   /** Grows with content instead of scrolling. */
-  readonly autoGrow?: boolean;
+  readonly autoGrow?: boolean | undefined;
   /** Cmd/Ctrl+Enter. The explicit save gesture for a multi-line field. */
-  readonly onCommit?: () => void;
+  readonly onCommit?: (() => void) | undefined;
   /** Escape. Reverts rather than closing an enclosing dialog. */
-  readonly onCancel?: () => void;
-  readonly className?: string;
-  readonly ref?: Ref<HTMLTextAreaElement>;
+  readonly onCancel?: (() => void) | undefined;
+  readonly className?: string | undefined;
+  readonly ref?: Ref<HTMLTextAreaElement> | undefined;
 }
 
 export function Textarea({

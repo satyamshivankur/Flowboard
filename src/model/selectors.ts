@@ -1,3 +1,4 @@
+import type { Capability } from "@/config/capabilities";
 import { CONTAINER_REGISTRY, holdsTasks } from "@/config/containers";
 import { PAGE_SIZE } from "@/config/limits";
 import { comparePriority } from "@/config/priorities";
@@ -5,7 +6,7 @@ import { TERMINAL_STATUS_CATEGORY } from "@/config/statusCategories";
 import { compareDueDate } from "@/lib/date";
 
 import { ancestorChain, childContainers, subtasksOf } from "./hierarchy";
-import { canView, canViewTask } from "./permissions";
+import { can, canView, canViewTask } from "./permissions";
 import { sortByPosition } from "./position";
 import {
   findContainer,
@@ -135,6 +136,27 @@ export function selectVisibleLists(
     ]);
 
   return collect(selectVisibleTree(state, scope));
+}
+
+/**
+ * Lists the user may *write* to, which is a strictly smaller set than the ones
+ * they may see.
+ *
+ * Move-to-list has to offer this set rather than the visible one. Today the two
+ * coincide, because every role that can see a list can also create in it — but
+ * the capability table is configuration, so a view-only role is one entry away,
+ * and offering it a destination it would be refused is the bug that entry
+ * would introduce (Requirement 2.6, 7.9, 21.7).
+ */
+export function selectEditableLists(
+  state: FlowboardState,
+  scope: Scope,
+  /** Injectable, so a test can supply the view-only role that proves the point. */
+  table?: Partial<Record<string, ReadonlySet<Capability>>>,
+): readonly Container[] {
+  return selectVisibleLists(state, scope).filter((list) =>
+    can(state, scope, "task:create", list.id, table),
+  );
 }
 
 /**

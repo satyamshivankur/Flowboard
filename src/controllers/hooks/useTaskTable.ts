@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 
 import { PAGE_SIZE } from "@/config/limits";
 import type { StatusColorToken } from "@/config/statusCategories";
+import { can } from "@/model/permissions";
 import type { Result } from "@/model/result";
 import {
   selectPaginatedRows,
@@ -32,12 +33,19 @@ export interface TaskTableViewModel {
   readonly hasMore: boolean;
   readonly isLoading: boolean;
   readonly isEmpty: boolean;
+  readonly canEdit: boolean;
   readonly sort: SortState;
   readonly onQuickUpdate: (
     taskId: string,
     input: UpdateTaskInput,
   ) => Promise<Result<unknown>>;
   readonly onToggleComplete: (taskId: string) => Promise<Result<unknown>>;
+  /**
+   * Creates into the list's first status, so the list view's empty state can
+   * carry the primary action instead of deferring to the board
+   * (Requirement 5.9).
+   */
+  readonly onCreate: (title: string) => Promise<Result<unknown>>;
 }
 
 /**
@@ -115,6 +123,16 @@ export function useTaskTable(
     [actions, scope],
   );
 
+  const onCreate = useCallback(
+    (title: string) => actions.create(scope, { listId: listId ?? "", title }),
+    [actions, scope, listId],
+  );
+
+  const canEdit = useMemo(
+    () => (listId === null ? false : can(state, scope, "task:update", listId)),
+    [state, scope, listId],
+  );
+
   return useMemo(
     () => ({
       rows,
@@ -122,9 +140,11 @@ export function useTaskTable(
       hasMore,
       isLoading: isHydrating || loadingListId === listId,
       isEmpty: total === 0,
+      canEdit,
       sort,
       onQuickUpdate,
       onToggleComplete,
+      onCreate,
     }),
     [
       rows,
@@ -133,9 +153,11 @@ export function useTaskTable(
       isHydrating,
       loadingListId,
       listId,
+      canEdit,
       sort,
       onQuickUpdate,
       onToggleComplete,
+      onCreate,
     ],
   );
 }

@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 
 import { canView } from "@/model/permissions";
-import { selectBreadcrumb, selectVisibleLists } from "@/model/selectors";
+import {
+  selectBoardColumns,
+  selectBreadcrumb,
+  selectVisibleLists,
+} from "@/model/selectors";
 
 import { useStore } from "../store";
 
@@ -23,6 +27,11 @@ export interface SelectedListViewModel {
   /** A few lists the user can see, for recovering from a denied selection. */
   readonly suggestions: readonly ListRef[];
   readonly firstListId: string | undefined;
+  /**
+   * Task ids in the selected list, in board order, so the drawer can offer
+   * previous/next without knowing which view is showing (Requirement 7.11).
+   */
+  readonly orderedTaskIds: readonly string[];
 }
 
 /**
@@ -54,6 +63,14 @@ export function useSelectedList(listId: string | null): SelectedListViewModel {
       name: list.name,
     }));
 
+    // `isVisible` already implies `listId !== null`; TypeScript carries that
+    // narrowing through the alias, so no redundant null check here.
+    const orderedTaskIds = isVisible
+      ? selectBoardColumns(state, scope, listId).flatMap((column) =>
+          column.tasks.map((task) => task.id),
+        )
+      : [];
+
     return {
       isVisible,
       name: listId === null ? undefined : state.containers[listId]?.name,
@@ -62,6 +79,7 @@ export function useSelectedList(listId: string | null): SelectedListViewModel {
       expansionPath: breadcrumb.slice(0, -1).map((node) => node.id),
       suggestions: visibleLists.slice(0, 3),
       firstListId: visibleLists[0]?.id,
+      orderedTaskIds,
     };
   }, [state, scope, listId]);
 }

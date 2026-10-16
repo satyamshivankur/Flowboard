@@ -5,13 +5,13 @@
  * deterministic — nothing in here reads the clock on its own.
  */
 
-export type DueDateTone = 'overdue' | 'today' | 'upcoming' | 'none'
+export type DueDateTone = "overdue" | "today" | "upcoming" | "none";
 
-const MS_PER_DAY = 86_400_000
+const MS_PER_DAY = 86_400_000;
 
 function startOfDay(iso: string): number {
-  const d = new Date(iso)
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+  const d = new Date(iso);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
 /**
@@ -19,53 +19,50 @@ function startOfDay(iso: string): number {
  * states worth colouring; everything else stays neutral so the signal is not
  * diluted (Requirement 15.8).
  */
-export function dueDateTone(
-  dueDate: string | null,
-  now: string,
-): DueDateTone {
-  if (!dueDate) return 'none'
+export function dueDateTone(dueDate: string | null, now: string): DueDateTone {
+  if (!dueDate) return "none";
 
-  const due = startOfDay(dueDate)
-  const today = startOfDay(now)
+  const due = startOfDay(dueDate);
+  const today = startOfDay(now);
 
-  if (due < today) return 'overdue'
-  if (due === today) return 'today'
-  return 'upcoming'
+  if (due < today) return "overdue";
+  if (due === today) return "today";
+  return "upcoming";
 }
 
 /** Whole days between two ISO datetimes, positive when `to` is later. */
 export function daysBetween(from: string, to: string): number {
-  return Math.round((startOfDay(to) - startOfDay(from)) / MS_PER_DAY)
+  return Math.round((startOfDay(to) - startOfDay(from)) / MS_PER_DAY);
 }
 
 /** `Oct 12` for the current year, `Oct 12, 2025` otherwise. */
 export function formatDueDate(dueDate: string, now: string): string {
-  const due = new Date(dueDate)
-  const sameYear = due.getUTCFullYear() === new Date(now).getUTCFullYear()
+  const due = new Date(dueDate);
+  const sameYear = due.getUTCFullYear() === new Date(now).getUTCFullYear();
 
-  return due.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' }),
-    timeZone: 'UTC',
-  })
+  return due.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+    timeZone: "UTC",
+  });
 }
 
 /** `4m ago`, `3h ago`, `2d ago` — for the drawer's updated timestamp. */
 export function formatRelative(iso: string, now: string): string {
-  const diffMs = new Date(now).getTime() - new Date(iso).getTime()
-  const minutes = Math.floor(diffMs / 60_000)
+  const diffMs = new Date(now).getTime() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
 
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${String(minutes)}m ago`
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${String(minutes)}m ago`;
 
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${String(hours)}h ago`
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${String(hours)}h ago`;
 
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${String(days)}d ago`
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${String(days)}d ago`;
 
-  return formatDueDate(iso, now)
+  return formatDueDate(iso, now);
 }
 
 /**
@@ -75,12 +72,27 @@ export function formatRelative(iso: string, now: string): string {
 export function compareDueDate(
   a: string | null,
   b: string | null,
-  direction: 'asc' | 'desc',
+  direction: "asc" | "desc",
 ): number {
-  if (a === null && b === null) return 0
-  if (a === null) return 1
-  if (b === null) return -1
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
 
-  const delta = new Date(a).getTime() - new Date(b).getTime()
-  return direction === 'asc' ? delta : -delta
+  const delta = new Date(a).getTime() - new Date(b).getTime();
+  return direction === "asc" ? delta : -delta;
+}
+
+/**
+ * An ISO due date `days` from `now`, normalised to 09:00 UTC.
+ *
+ * Quick due-date actions on a card and the drawer's date input must produce
+ * identical values, or the same date typed two ways would sort differently.
+ * Fixing the time of day here is what guarantees that (Requirement 15.2).
+ */
+export function dueDateAtDays(now: string, days: number): string {
+  const base = new Date(startOfDay(now) + days * MS_PER_DAY);
+
+  return new Date(
+    Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 9),
+  ).toISOString();
 }
