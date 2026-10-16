@@ -56,7 +56,41 @@ export const STATUS_CATEGORIES = Object.values(STATUS_CATEGORY_CONFIG)
   .sort((a, b) => a.order - b.order)
   .map((config) => config.category);
 
-/** Every status token, so the Tailwind-safelist check can enumerate them. */
+/**
+ * Complete Tailwind class strings per status token.
+ *
+ * Written out in full rather than composed as `bg-${token}`, because Tailwind
+ * resolves classes by scanning source text and an interpolated name generates
+ * no CSS. One map, read by the kanban column header, the card and the list row,
+ * so a status cannot render two ways (Requirement 13.6).
+ */
+export const STATUS_TOKEN_CLASSES: Record<
+  StatusColorToken,
+  { readonly dot: string; readonly soft: string; readonly text: string }
+> = {
+  "status-todo": {
+    dot: "bg-status-todo",
+    soft: "bg-surface-sunken text-ink-600 ring-border",
+    text: "text-status-todo",
+  },
+  "status-active": {
+    dot: "bg-status-active",
+    soft: "bg-info-50 text-info-700 ring-status-active/20",
+    text: "text-status-active",
+  },
+  "status-review": {
+    dot: "bg-status-review",
+    soft: "bg-brand-50 text-brand-700 ring-status-review/20",
+    text: "text-status-review",
+  },
+  "status-done": {
+    dot: "bg-status-done",
+    soft: "bg-success-50 text-success-700 ring-status-done/20",
+    text: "text-status-done",
+  },
+};
+
+/** Every status token, so the class map above can be checked for completeness. */
 export const STATUS_COLOR_TOKENS: readonly StatusColorToken[] = [
   "status-todo",
   "status-active",

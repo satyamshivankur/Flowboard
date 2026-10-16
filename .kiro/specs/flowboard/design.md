@@ -1024,6 +1024,21 @@ if (
 
 Location `src/components/ui`. Every primitive is pure, typed, accepts a last-merged `className`, and forwards refs where the DOM element needs one (11.3). Variants are typed lookup records, never inline conditionals (11.9):
 
+#### Class order inside `cn()` is load-bearing
+
+`cn()` resolves conflicts through tailwind-merge, which keeps the **last** of two conflicting classes and deletes the earlier one. Crucially, a broad class deletes a narrower one it supersedes:
+
+```ts
+cn("pl-8", "px-3"); // → "px-3"       the pl-8 is gone
+cn("px-3", "pl-9"); // → "px-3 pl-9"  both kept, pl wins in the stylesheet
+```
+
+`Input` shipped with the first form: its size record contributed `px-3` _after_ the conditional `pl-8` for a leading icon, so the icon padding never reached the DOM and the icon overlapped the text. Nothing in the source looked wrong, and there was no error — the class was silently dropped.
+
+The rule for every primitive: **a conditional override must appear after the base class it overrides**, and a size record must not mix a broad property with a directional override of the same property. `Input` keeps `padX` and `padLeading` as separate fields in its `SIZE` entry for exactly this reason, and `Input.test.tsx` asserts the resolved `className` so a reordering cannot regress it unnoticed.
+
+Verified against the built stylesheet: `px-*` emits `padding-inline` and `pl-*` emits `padding-left`, with the directional rule ordered later, so equal specificity resolves in its favour.
+
 ```ts
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
   primary: "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800",
@@ -1099,6 +1114,23 @@ const BUTTON_VARIANT: Record<ButtonVariant, string> = {
 ---
 
 ## Visual system
+
+### Token classes must be written out in full
+
+The design originally had components compose classes from a token, as `bg-${status.color}`. **That generates no CSS.** Tailwind resolves classes by scanning source text, so an interpolated name is never seen and the utility is never emitted — verified against the built stylesheet during Phase 4, where the interpolated form produced no rule at all while the literal beside it worked.
+
+This is the worst possible failure mode: no build error, no type error, just unstyled badges at runtime. So the complete class strings live in the config beside the token:
+
+```ts
+// src/config/priorities.ts
+classes: {
+  text: "text-priority-urgent",
+  soft: "bg-danger-50 text-priority-urgent ring-priority-urgent/20",
+  dot:  "bg-priority-urgent",
+}
+```
+
+`PRIORITY_CONFIG[p].classes`, `STATUS_TOKEN_CLASSES[token]` and `AVATAR_TOKEN_CLASSES[token]` are each read by every surface that renders that concept, so Requirement 13.6's "identical across kanban cards, list rows and the drawer" is structural rather than a convention — and still a single source of truth, since the classes sit in the same declaration as the semantics.
 
 ### Tokens — `src/index.css`
 

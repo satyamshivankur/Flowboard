@@ -22,6 +22,21 @@ export const AVATAR_COLOR_TOKENS: readonly AvatarColorToken[] = [
 ];
 
 /**
+ * Complete Tailwind class strings per avatar token.
+ *
+ * Spelled out rather than interpolated as `bg-${token}`, for the same reason as
+ * the priority and status maps: Tailwind scans source text, so an interpolated
+ * class name generates no CSS and the avatar would render transparent.
+ */
+export const AVATAR_TOKEN_CLASSES: Record<AvatarColorToken, string> = {
+  "avatar-indigo": "bg-avatar-indigo text-white",
+  "avatar-teal": "bg-avatar-teal text-white",
+  "avatar-amber": "bg-avatar-amber text-white",
+  "avatar-rose": "bg-avatar-rose text-white",
+  "avatar-violet": "bg-avatar-violet text-white",
+};
+
+/**
  * Initials for an avatar: first letters of the first two words, uppercased.
  * "Alice Nguyen" becomes "AN", "Bob" becomes "B".
  */

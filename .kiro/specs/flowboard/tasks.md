@@ -247,48 +247,51 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 4 — Design system and Storybook
 
-- [ ] 10. Build the primitives in `src/components/ui`
-- [ ] 10.1 Core controls — `Button`, `IconButton`, `Input`, `Textarea`, `Checkbox`, `SegmentedControl`
+- [x] 10. Build the primitives in `src/components/ui`
+- [x] 10.1 Core controls — `Button`, `IconButton`, `Input`, `Textarea`, `Checkbox`, `SegmentedControl`
   - Typed variant lookup records; `IconButton` requires `label`; visible hover/focus-visible/active/disabled states; `loading` where relevant
   - Hover-dependent styling uses the `can-hover` variant, never bare `hover:` for anything that reveals functionality
   - Every size variant meets `2.75rem` on coarse pointers; the `sm` size is offered only where a fine pointer is present
   - Font size `0.875rem` input minimum, so iOS does not zoom the viewport on focus
   - _Requirements: 11.1, 11.2, 11.3, 11.5, 11.9, 13.11, 14.8, 17.1, 20.9, 20.10, 22.1_
-- [ ] 10.2 Headless UI wrappers — `Select`, `Menu`, `Dialog`, `ConfirmDialog`, `Drawer`, `Sheet`, `Tooltip`
+- [x] 10.2 Headless UI wrappers — `Select`, `Menu`, `Dialog`, `ConfirmDialog`, `Drawer`, `Tooltip`
+  - `Sheet` was dropped as a separate component: it is `Drawer` with `side="bottom"`, and `side="right"` already renders as a bottom sheet below `md`. A second component would have been the same element with different defaults
   - Focus trap, Escape, focus restore, ARIA wiring inherited from Headless UI
   - `Drawer` takes a `side` of `'right' | 'bottom'` so the same component serves the desktop panel and the mobile sheet; `Sheet` is the bottom preset with `max-h-[92dvh]` and a drag-to-dismiss affordance
   - `Menu` and `Select` panels are width-constrained in `rem` and flip to a sheet below `40rem`, since a dropdown anchored near a screen edge is unusable on a phone
   - `Tooltip` suppresses itself on coarse pointers, where it would either never fire or fire on tap and block the tap
   - _Requirements: 11.2, 13.10, 17.1, 17.2, 20.7, 20.10_
-- [ ] 10.3 Domain-token displays — `Badge`, `StatusPill`, `PriorityBadge`, `DueDateChip`, `Avatar`, `AvatarGroup`
+- [x] 10.3 Domain-token displays — `Badge`, `StatusPill`, `PriorityBadge`, `DueDateChip`, `Avatar`, `AvatarGroup`
   - Token-only colors; `DueDateChip` resolves overdue/today tone internally; color always paired with a label or icon
   - _Requirements: 3.6, 11.2, 13.6, 15.8, 17.7_
-- [ ] 10.4 Feedback and layout — `Skeleton`, `EmptyState`, `Toast`, `Spinner`, `Card`, `Kbd`, `Separator`, `ScrollShadow`
+- [x] 10.4 Feedback and layout — `Skeleton`, `EmptyState`, `Toast`, `Spinner`, `Card`, `Kbd`, `Separator`, `ScrollShadow`
   - `Skeleton` variants sized to the real layouts they stand in for; `Card` carries `interactive`/`elevated`/`selected`/`dragging`
   - _Requirements: 11.2, 14.1, 14.3, 15.1_
-- [ ] 10.5 Encode the spacing contract into the primitives
+- [x] 10.5 Encode the spacing contract into the primitives
   - Per-surface padding driven by the primitive, the breakpoint and the density variant — not by per-instance utilities at call sites
   - Mobile base values from the spacing table, including `h-11` tree and menu items for touch
   - Density clamped to comfortable below `md`
   - _Requirements: 13.8, 13.9, 16.3, 20.9_
-- [ ] 10.6 Verify the primitives use no arbitrary `px` values
+- [x] 10.6 Verify the primitives use no arbitrary `px` values
   - Every dimension comes from the Tailwind scale or a named `--spacing-*` token; run the 1.8 guard against `src/components/ui`
   - _Requirements: 22.1, 22.2, 22.3_
 
-- [ ] 11. Set up Storybook
-- [ ] 11.1 Install and configure `storybook@10.6.2` with `@storybook/react-vite@10.6.2`
+- [x] 11. Set up Storybook
+- [x] 11.1 Install and configure `storybook@10.6.2` with `@storybook/react-vite@10.6.2`
   - Reuse the app's Vite config so `@tailwindcss/vite` is active; import `src/index.css` in `preview.ts`; add the `storybook` script
   - _Requirements: 11.6_
-- [ ] 11.1.1 Register viewport presets matching the breakpoint tokens
+- [x] 11.1.1 Register viewport presets matching the breakpoint tokens
   - `base` (`20rem`), `sm` (`40rem`), `md` (`48rem`), `lg` (`64rem`), `xl` (`80rem`), sourced from `src/config/breakpoints.ts` so Storybook and the stylesheet share one definition, with the parity check covering the rest
   - _Requirements: 20.3, 20.14_
-- [ ] 11.2 Write a story per primitive covering variants, sizes and disabled/loading/error states
+- [x] 11.2 Write a story per primitive covering variants, sizes and disabled/loading/error states
   - _Requirements: 11.7_
 - [ ] 11.3 Write fixture-driven composite stories
   - `TaskCard`, `KanbanColumn`, `SidebarTree`, `TaskDrawer`, `EmptyState`, wrapped in `AppProviders` with a seeded store
+  - **Blocked until Phases 5–6**: these components do not exist yet. `EmptyState` is covered by the `Feedback` stories; the rest land with their views
   - _Requirements: 11.8_
 - [ ] 11.4 Add responsive stories for every surface that changes shape
   - Board, list view, drawer, sidebar and top bar at base and at `md`, so responsive behaviour is reviewable per component rather than only in the assembled app
+  - **Partly done**: viewport presets are registered and `Drawer` already demonstrates the sheet/panel swap across them. The board, list view, sidebar and top bar stories land with those views
   - _Requirements: 20.14_
 
 ---

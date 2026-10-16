@@ -108,6 +108,17 @@ const LAYER_RULES = {
         from: './src/adapters',
         message: 'Design-system primitives must not reach for adapters.',
       },
+      {
+        /*
+         * Primitives must be renderable from plain props, with no provider.
+         * A component that needs Context is a *host* and belongs in
+         * src/views/hosts — see ToastHost and ConfirmHost (Requirement 11.4).
+         */
+        target: './src/components',
+        from: './src/contexts',
+        message:
+          'Design-system primitives must be props-only. Put Context-consuming wiring in src/views/hosts instead.',
+      },
     ],
   },
 
