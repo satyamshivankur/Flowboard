@@ -181,7 +181,8 @@ src/
 │       ├── useContainerActions.ts
 │       ├── usePermissions.ts
 │       ├── useAction.ts           # the single error-surfacing path
-│       └── usePendingAction.ts    # useAction + in-flight keys, for 14.7
+│       ├── usePendingAction.ts    # useAction + in-flight keys, for 14.7
+│       └── useTaskSearch.ts       # grouped, scoped search hits
 │
 ├── contexts/                     # Layer 2.5 — presentation concerns
 │   ├── AppProviders.tsx
@@ -199,11 +200,13 @@ src/
 │   ├── board/                    # KanbanBoard, KanbanColumn, TaskCard, ...
 │   ├── list/                     # TaskListView, TaskTable, TaskRow, ...
 │   ├── drawer/                   # TaskDrawer and its field sections
+│   ├── search/                   # TaskSearch — the ⌘K palette
 │   └── states/                   # PermissionDenied, NoListSelected,
 │                                  # ReadOnlyNotice
 │
 ├── components/ui/                # Design system — pure primitives + stories
-├── lib/                          # cn(), date utils, keyboard utils
+├── lib/                          # cn(), date utils, useLatched,
+│                                  # useDebouncedValue
 ├── test/                         # setup, fixture builders, render helpers
 ├── index.css                     # ONLY stylesheet: @import + @theme
 └── main.tsx

@@ -578,12 +578,24 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 8 — Stretch goals (only after everything above passes)
 
-- [ ] 21. Client-side task search
+Both attempted, both complete. Requirement 23.4 caps the set at these two, so
+nothing further was added — the README names them as the attempted pair.
+
+- [x] 21. Client-side task search
   - Debounced input over title and description, scoped to the current user's visible tasks, results grouped by list with highlighted matches and a keyboard shortcut to focus the field
   - Full-screen overlay at base viewport, anchored panel from `md`; results list uses `2.75rem` rows on touch
+  - Four pieces, one per layer: `selectSearchResults` (Model, already written in Phase 1) decides *what* is visible; `useTaskSearch` groups and shapes it; `CommandPalette` renders it; `TaskSearch` connects them. The palette knows nothing about tasks or permissions, which is why it is reviewable in Storybook with literal data
+  - Scoping lives in the Model, not the view. A search box matching on titles is the easiest way to leak the name of something a user cannot open, and no amount of UI care fixes an unscoped query. Tested from both directions: Bob gets nothing for a task on his denied Infra list, and nothing for the private Marketing space
+  - Built on Headless UI's `Combobox` inside a `Dialog`, which supplies the hard part — `aria-activedescendant` roving focus, arrow keys, Enter, and focus returned to the trigger. Hand-rolling that is how a palette ends up mouse-only
+  - **Three bugs found while testing.** (1) `Combobox` swallows Escape as "close the option list", which does nothing when the options are `static` — so the key looked dead and the palette could only be dismissed via the backdrop. Handled explicitly on the input. (2) Reading the debounced value alone left the previous query's hits on screen after clearing the input; clearing is now immediate and only *searching* is debounced. (3) The `RegExp` built for match highlighting needed escaping — a single `(` typed into the field would otherwise throw
+  - Group labels are the full ancestor path, not the leaf name: two spaces can each hold a list called "Backlog"
   - _Requirements: 23.1, 23.2_
-- [ ] 22. Confirm optimistic DnD rollback end to end
+- [x] 22. Confirm optimistic DnD rollback end to end
   - Already implemented in 7.5 and 14.10; verify via the dev panel's forced-failure trigger and record it as the second attempted stretch goal
+  - `src/views/rollback.test.tsx` drives the panel's own "Fail next operation" control rather than stubbing the transport, because that path has two links the unit tests skip: `SimulationContext` writing through to the adapter's module-level settings, and the one-shot trigger being consumed by exactly one mutation
+  - Asserts the **fractional positions**, not just the visible order. Restoring a sequence while leaving the underlying numbers changed would look correct and then misorder the next insert — the failure mode a visual check cannot see
+  - Also covers the two adjacent behaviours: the retry succeeds, because "fail next" is one-shot and a mutation is a closure over its inputs rather than something the first attempt consumed; and "Reset simulation" disarms it
+  - All four passed on the first run, which is the result worth having here — the mechanism was already right, and this confirms the demo path a reviewer uses
   - _Requirements: 23.3, 23.4_
 
 ---

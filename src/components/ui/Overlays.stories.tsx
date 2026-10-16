@@ -1,12 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { FileText } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "./Button";
+import {
+  CommandPalette,
+  type CommandPaletteGroup,
+} from "./CommandPalette";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Dialog } from "./Dialog";
 import { Drawer } from "./Drawer";
+import { Highlight } from "./Highlight";
 import { Input } from "./Input";
+import { Kbd } from "./Kbd";
 import { ScrollShadow } from "./ScrollShadow";
+import { StatusPill } from "./StatusPill";
 
 /*
  * Interactive demos live in named components rather than inline in `render`.
@@ -203,6 +211,133 @@ export const ScrollShadows: Story = {
           ))}
         </ul>
       </ScrollShadow>
+    </div>
+  ),
+};
+
+/*
+ * The palette is props-only, including its item labels — it knows nothing
+ * about tasks, permissions or how a match is highlighted. That is what lets it
+ * be driven from literal data here, with no store and no providers
+ * (Requirement 11.4).
+ */
+const PALETTE_GROUPS: CommandPaletteGroup[] = [
+  {
+    id: "backlog",
+    label: "Acme / Engineering / Q2 / Backlog",
+    items: [
+      {
+        id: "t-001",
+        icon: FileText,
+        label: (
+          <Highlight text="Define onboarding checklist" query="onboarding" />
+        ),
+        meta: <StatusPill name="To do" colorToken="status-todo" />,
+      },
+      {
+        id: "t-002",
+        icon: FileText,
+        label: <Highlight text="Audit empty states" query="empty" />,
+        description: (
+          <Highlight
+            text="…states we should audit across the product…"
+            query="audit"
+          />
+        ),
+        meta: <StatusPill name="In progress" colorToken="status-active" />,
+      },
+    ],
+  },
+  {
+    id: "sprint",
+    label: "Acme / Engineering / Q2 / Sprint 14",
+    items: [
+      {
+        id: "t-007",
+        icon: FileText,
+        label: <Highlight text="Add keyboard navigation" query="keyboard" />,
+        meta: <StatusPill name="Done" colorToken="status-done" />,
+      },
+    ],
+  },
+];
+
+function CommandPaletteDemo() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  // Filtering is the caller's job, so the story does it the crude way to keep
+  // the focus on the primitive's own behaviour.
+  const groups = PALETTE_GROUPS.filter(() => query.trim().length > 0);
+
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <Button
+        variant="secondary"
+        onClick={() => {
+          setOpen(true);
+        }}
+      >
+        Open palette
+      </Button>
+
+      <p className="text-xs text-ink-400">
+        Type anything to see results. Arrow keys navigate, Enter chooses, Escape
+        closes. Switch to the phone viewport to see the full-screen form.
+      </p>
+
+      <CommandPalette
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          setQuery("");
+        }}
+        query={query}
+        onQueryChange={setQuery}
+        groups={groups}
+        onSelect={() => {
+          setOpen(false);
+          setQuery("");
+        }}
+        label="Search tasks"
+        placeholder="Search tasks by title or description…"
+        hintLabel="Search every task you can see in this workspace."
+        emptyLabel="No tasks match."
+        footer={
+          <span className="flex items-center gap-1 text-xs text-ink-400">
+            <Kbd keys={["↑", "↓"]} /> to navigate
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
+export const CommandPalettes: Story = {
+  render: () => <CommandPaletteDemo />,
+};
+
+/** The palette at its base-viewport shape, which is a full-screen sheet. */
+export const CommandPalettePhone: Story = {
+  name: "Command palette · phone",
+  parameters: { viewport: { defaultViewport: "phone" } },
+  render: () => <CommandPaletteDemo />,
+};
+
+export const Highlights: Story = {
+  render: () => (
+    <div className="flex flex-col gap-2 text-sm text-ink-900">
+      <Highlight text="Define onboarding checklist" query="onboarding" />
+      {/* Case-insensitive, and every occurrence rather than just the first. */}
+      <Highlight text="Audit the audit of the audit" query="AUDIT" />
+      {/*
+        A regex metacharacter in the query. The needle is escaped before it
+        reaches the `RegExp`, so this renders instead of throwing — which a
+        single `(` would otherwise do on a keystroke.
+      */}
+      <Highlight text="Rework the task detail (layout)" query="(layout)" />
+      {/* An empty query leaves the text untouched. */}
+      <Highlight text="Nothing to highlight here" query="" />
     </div>
   ),
 };

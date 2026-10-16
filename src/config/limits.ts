@@ -52,6 +52,12 @@ export const TOAST_DURATION_MS = 5000;
 
 /** Debounce for the search input in milliseconds. */
 export const SEARCH_DEBOUNCE_MS = 200;
+/**
+ * Most search hits rendered at once. A palette that lists a thousand results
+ * is not more useful than one that lists fifty and says so — and the list is
+ * keyboard-navigated one row at a time.
+ */
+export const SEARCH_RESULT_LIMIT: number = 50;
 
 /** Minimum statuses a list must retain — one per category. */
 export const MIN_STATUSES_PER_LIST = 3;

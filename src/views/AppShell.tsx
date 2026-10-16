@@ -9,6 +9,7 @@ import { useSession } from "@/controllers/hooks/useSession";
 import { TaskDrawer } from "./drawer/TaskDrawer";
 import { ConfirmHost } from "./hosts/ConfirmHost";
 import { ToastHost } from "./hosts/ToastHost";
+import { TaskSearch } from "./search/TaskSearch";
 import { Sidebar } from "./sidebar/Sidebar";
 import {
   NoListSelectedState,
@@ -107,6 +108,13 @@ export function AppShell() {
         triage works from either view.
       */}
       <TaskDrawer orderedTaskIds={selected.orderedTaskIds} />
+
+      {/*
+        Also mounted at the shell: the ⌘K listener has to be live regardless of
+        which view is on screen, and a search hit can navigate to a list other
+        than the selected one.
+      */}
+      <TaskSearch />
 
       <ToastHost />
       <ConfirmHost />
