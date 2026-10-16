@@ -249,6 +249,10 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 8.7. Visibility SHALL be resolved by walking the ancestor chain from workspace down to the node, in a single deterministic pass, where a `private` node resets visibility to denied and an explicit grant at a node overrides the inherited result for that node and its subtree. The nearest grant in the chain SHALL win.
 
+8.7.1. Structural checks SHALL be evaluated **before** the admin bypass of 8.6, and the bypass SHALL apply only to the grant and visibility decision. Specifically, a node SHALL be denied to every role — admins included — when it does not exist, when its ancestor chain is broken or cyclic, when any node in its chain belongs to a different workspace, or when any node in its chain is archived. Archive is state rather than access, and workspace membership is not transitive across workspaces, so neither is something a role can see past.
+
+8.7.2. The workspace check of 8.7.1 SHALL verify every node in the ancestor chain, not only the chain's root, so that a node whose denormalized `workspaceId` disagrees with its parent chain is rejected rather than inherited into the wrong workspace.
+
 8.8. All tree and task selectors SHALL return only nodes and tasks the current user is permitted to view. A task SHALL be viewable if and only if its primary list is viewable.
 
 8.9. Edit permission SHALL be defined as: admins may edit anything; members may create, update, delete and reorder **tasks** in lists they can view; container create, rename, archive and reorder operations SHALL be admin-only.

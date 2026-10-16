@@ -466,17 +466,24 @@ export function canView(
 
 The admin bypass is expressed as a capability lookup rather than `role === 'admin'` so that adding an `owner` role, or demoting what admins may bypass, is a table edit (21.7). The cross-workspace guard is the kind of check that is trivial to add now and awkward to retrofit after a second workspace exists.
 
+**Ordering matters, and getting it wrong is subtle.** An earlier draft had the admin bypass as step 1, returning `true` before any structural check. That let an admin "view" a node that did not exist, a node that was archived, and — the serious one — a node in another workspace, which would have quietly defeated the entire multi-workspace guarantee. Structural checks therefore run first, and only the _grant and visibility_ decision is bypassed.
+
+The workspace check also has to cover every node in the chain rather than just its root. `workspaceId` is denormalized, so checking only the root lets a node whose own `workspaceId` disagrees with its parent chain slip through — precisely the corruption the denormalization risks.
+
 Properties this gives us, each with a test:
 
 | Scenario                                       | Result                                       |
 | ---------------------------------------------- | -------------------------------------------- |
-| Admin, anything                                | allow (chain not walked)                     |
+| Not a member of the workspace                  | deny                                         |
+| Missing, orphaned or cyclic chain              | deny, for every role                         |
+| Any chain node in another workspace            | deny, for every role                         |
+| Archived anywhere in the chain                 | deny, for every role                         |
+| Admin, otherwise                               | allow (grant walk skipped)                   |
 | Public chain, no grants                        | allow                                        |
 | `private` node, no grant                       | deny                                         |
 | `private` node, `allow` grant on it            | allow, and inherited by its subtree          |
 | `deny` on an ancestor                          | deny for the whole subtree                   |
 | `deny` on an ancestor, `allow` on a descendant | allow at the descendant — nearest grant wins |
-| Archived anywhere in the chain                 | deny                                         |
 
 Tasks are not granted individually: `canViewTask(task) === canView(task.primaryListId)`.
 

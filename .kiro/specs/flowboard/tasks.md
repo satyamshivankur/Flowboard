@@ -76,71 +76,71 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 1 — Model layer (pure TypeScript, no React)
 
-- [ ] 2. Define entities and state shape
-- [ ] 2.1 Write `src/model/types.ts`
+- [x] 2. Define entities and state shape
+- [x] 2.1 Write `src/model/types.ts`
   - `Container`, `Status`, `Task`, `User`, `Membership`, `Grant`; the `ContainerType`, `Visibility`, `StatusCategory`, `Priority`, `Role` unions; `ErrorCode`, `AppError`, `Result<T>` with `ok`/`err` constructors; a `Scope` type of `{ workspaceId, userId }`
   - `workspaceId` on `Container`, `Task`, `Status` and `Grant`; **no** `role` field on `User` — role lives on `Membership`
   - `Grant` uses `subjectId` + `subjectType: 'user'` rather than `userId`, so team grants are a union widening
   - Doc comment on each exported interface stating its contract
   - _Requirements: 1.1, 2.2, 3.2, 8.4, 8.5, 9.1, 9.5, 21.2, 21.3, 21.19_
-- [ ] 2.2 Write `src/model/state.ts`
+- [x] 2.2 Write `src/model/state.ts`
   - `FlowboardState` with normalized `Record<id, entity>` maps, `memberships` and `grants` arrays, `version`, and an empty-state factory
   - `activeWorkspaceId` plus a `workspaceIds` index — no singleton field naming "the" workspace
   - _Requirements: 9.1, 21.1, 21.2_
-- [ ] 2.2.1 Write `src/model/hierarchy.ts`
+- [x] 2.2.1 Write `src/model/hierarchy.ts`
   - `ancestorChain`, `depthOf`, `taskDepth`, and registry-backed lookups; `taskDepth` compared against `MAX_TASK_DEPTH` rather than a `parentTaskId == null` check
   - _Requirements: 21.4, 21.9_
-- [ ] 2.3 Write `src/model/position.ts` with tests
+- [x] 2.3 Write `src/model/position.ts` with tests
   - `nextPosition(prev, next)` for head/middle/tail insertion, `needsRebalance`, `rebalance(siblings)`
   - Tests: all three insertion points, repeated midpoint insertion until the gap collapses, rebalance preserving order
   - _Requirements: 1.7, 2.9, 18.5_
-- [ ] 2.4 Write `src/model/validation.ts` with tests
+- [x] 2.4 Write `src/model/validation.ts` with tests
   - Container name bounds via `MAX_NAME_LEN`, parent-type checks via `canContain` from the registry, cyclic-move rejection, task title bounds via `MAX_TITLE_LEN`, status-belongs-to-list check, subtask depth via `taskDepth` and `MAX_TASK_DEPTH`, assignee de-duplication
   - No `switch` on container type and no literal type comparisons — every hierarchy rule resolves through the registry
   - _Requirements: 1.2, 1.3, 1.9, 1.10, 2.4, 2.5, 2.11, 18.5, 21.4, 21.9_
-- [ ] 2.5 Write `registry.test.ts` — the extensibility proof for the hierarchy
+- [x] 2.5 Write `registry.test.ts` — the extensibility proof for the hierarchy
   - Inject a synthetic container type into a test registry and assert that validation, reorder and move logic handle it with no production-code change
   - _Requirements: 18.9, 21.4_
 
-- [ ] 3. Build the permission engine
-- [ ] 3.1 Write `src/model/permissions.ts`
+- [x] 3. Build the permission engine
+- [x] 3.1 Write `src/model/permissions.ts`
   - `roleOf(state, workspaceId, userId)` resolving through `memberships` — never a field on `User`
   - `resolveGrant(state, resourceId, userId)` as the single grant seam, built on a `subjectsOf` lookup that today returns `[userId]`, preferring `deny` among multiple matches
   - `canView(state, scope, nodeId)`: bypass via `ROLE_CAPABILITIES[role].has('workspace:bypass')` → reject cross-workspace nodes → walk the chain → `private` resets → nearest grant wins → archived denies
   - `canViewTask`, and `can(state, scope, capability, resourceId)` reading the capability table with no role-specific branches
   - _Requirements: 8.5, 8.6, 8.7, 8.8, 8.9, 8.12, 21.3, 21.7, 21.8_
-- [ ] 3.2 Write `permissions.test.ts` covering the full resolution table
+- [x] 3.2 Write `permissions.test.ts` covering the full resolution table
   - Admin bypass; public chain no grants; private without grant; private with allow; allow inherited by subtree; ancestor deny; ancestor deny overridden by descendant allow; archived ancestor; non-member of the workspace
   - _Requirements: 18.2_
-- [ ] 3.3 Write `capabilities.test.ts`
+- [x] 3.3 Write `capabilities.test.ts`
   - Assert outcomes from `ROLE_CAPABILITIES` rather than restating policy, and prove a synthetic third role works without touching `can()`
   - _Requirements: 18.9, 21.7_
 
-- [ ] 4. Author seed fixtures
-- [ ] 4.1 Write `src/model/seed.ts`
+- [x] 4. Author seed fixtures
+- [x] 4.1 Write `src/model/seed.ts`
   - Deterministic IDs and a fixed `SEED_NOW`. 1 workspace, 2 spaces (Engineering public, Marketing private), 2 folders, 3 lists, 3 users (Alice admin, Bob member, Carol member), 17 tasks across all statuses
   - Per-list status sets, with Sprint 14 carrying an extra "In review" status
   - Task coverage: one overdue, one due today, one with no due date, one multi-assignee, one unassigned, one urgent, one parent with two subtasks
   - Grants: `allow` Carol on `sp-marketing`, `deny` Bob on `li-infra`, each carrying `workspaceId` and `subjectType: 'user'`
   - Memberships: Alice admin, Bob member, Carol member — all on `ws-acme`
   - _Requirements: 2.2, 3.3, 3.4, 8.1, 9.2, 9.3, 8.14, 21.2, 21.3_
-- [ ] 4.2 Assert the expected visible tree per user
+- [x] 4.2 Assert the expected visible tree per user
   - Test the exact node sets for Alice, Bob and Carol against the fixtures, so the demo guarantee is enforced by CI rather than by hand
   - _Requirements: 8.14, 18.3_
-- [ ] 4.3 Add a second workspace to the **test** fixtures only
+- [x] 4.3 Add a second workspace to the **test** fixtures only
   - `ws-other` with one space and two tasks, never present in the app seed
   - _Requirements: 18.10, 21.1_
 
-- [ ] 5. Write pure selectors with tests
-- [ ] 5.1 Tree and container selectors
+- [x] 5. Write pure selectors with tests
+- [x] 5.1 Tree and container selectors
   - `selectVisibleTree`, `selectBreadcrumb`, `selectChildren`, `selectFirstVisibleList` — permission-filtered, archive-filtered, position-sorted
   - Every collection selector takes a `{ workspaceId, userId }` scope; none reads `activeWorkspaceId` internally
   - _Requirements: 1.6, 6.1, 6.4, 8.8, 21.2_
-- [ ] 5.2 Task and status selectors
+- [x] 5.2 Task and status selectors
   - `selectTasksForList`, `selectBoardColumns` (grouped by status, sorted by position), `selectTaskRows` (top-level with nested subtasks), `selectStatusesForList`, `selectSortedTasks`, `selectPaginatedTasks`
   - Sorting reads `PRIORITY_CONFIG[p].rank` rather than a hand-written priority order
   - _Requirements: 3.5, 4.1, 5.1, 5.3, 5.4, 5.7, 9.12, 18.3, 21.6_
-- [ ] 5.3 Write `workspaceScope.test.ts`
+- [x] 5.3 Write `workspaceScope.test.ts`
   - Using the two-workspace fixture, assert no `ws-acme` selector returns a `ws-other` entity and that `canView` rejects a cross-workspace node
   - _Requirements: 18.10, 21.1, 21.2_
 
