@@ -353,9 +353,11 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 12.1. Presentation-level cross-cutting concerns SHALL be provided via React Context, distinct from the Zustand store which holds domain state.
 
-12.2. The system SHALL provide the following Contexts: `ToastContext` (queue and dispatch of notifications), `DensityContext` (comfortable/compact UI density), `NavigationContext` (selected list, active view, open task), `ConfirmContext` (promise-based confirmation dialogs), `SimulationContext` (latency and failure-injection settings), `SidebarContext` (collapsed state, width, expanded node set), `ViewportContext` (active breakpoint and pointer capability, for the structural responsive decisions of Requirement 20).
+12.2. The system SHALL provide the following Contexts: `ToastContext` (queue and dispatch of notifications), `DensityContext` (comfortable/compact UI density), `NavigationContext` (selected list, active view, open task), `ConfirmContext` (promise-based confirmation dialogs), `SimulationContext` (latency and failure-injection settings), `SidebarContext` (collapsed state, width, expanded node set, and whether the sidebar is currently modal).
 
-12.7. `ViewportContext` SHALL derive its values from `matchMedia` queries built from the shared breakpoint tokens, so that JavaScript and CSS cannot disagree about breakpoint positions. Responsive behaviour achievable with Tailwind variants alone SHALL NOT be routed through this Context.
+12.7. Responsive behaviour SHALL be expressed in CSS by default. A breakpoint SHALL be observed from JavaScript only where the decision is about **behaviour** rather than appearance — specifically, whether the sidebar is a focus-trapping modal sheet or part of the static layout, since a sheet left open while the viewport widens would otherwise become an invisible focus trap. Layout differences achievable with Tailwind variants SHALL NOT be routed through JavaScript.
+
+12.8. WHERE JavaScript observes a breakpoint, the value SHALL be derived from a shared module that mirrors the `--breakpoint-*` tokens, and a build-time check SHALL fail when the two drift. Duplication of breakpoint values SHALL be permitted only with such a check in place.
 
 12.3. Each Context SHALL expose a typed consumer hook that throws a descriptive error when used outside its provider.
 
@@ -592,11 +594,13 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 | Breadcrumbs  | Current list name only, with the full path in the sidebar                                                                  | Last two segments                     | Full path                          |
 | Main content | Full viewport width                                                                                                        | Remaining width beside the slide-over | Remaining width beside the sidebar |
 
-20.5. The kanban board SHALL adapt as follows: below `48rem` it SHALL present one column at a time at a width near the viewport, using horizontal scroll-snap with a status indicator showing position within the column set; at `48rem` and above it SHALL present the fixed-width multi-column board of 16.5.
+20.5. The kanban board SHALL adapt as follows: below `48rem` it SHALL present one column at a time at a width near the viewport, using horizontal scroll-snap with an indicator showing position within the column set; at `48rem` and above it SHALL present the fixed-width multi-column board of 16.5. Both forms SHALL render the same column elements, differing only by Tailwind variants — the scroll-snap container and column width — so no JavaScript breakpoint check is required. The position indicator SHALL derive the active column from scroll position, not from viewport width.
 
-20.6. The list view SHALL adapt as follows: below `48rem` each task SHALL render as a stacked card showing title, status, priority, due date and assignees, with sort controls in a dropdown rather than as table headers; at `48rem` and above it SHALL render the full table of Requirement 5. Both forms SHALL expose the same sort options and open the same drawer.
+20.6. The list view SHALL adapt as follows: below `48rem` each task SHALL render as a stacked card showing title, status, priority, due date and assignees, with sort controls in a dropdown rather than as table headers; at `48rem` and above it SHALL render the full table of Requirement 5. Both forms SHALL expose the same sort options, be driven by the same view-model hook, and open the same drawer. The inactive form SHALL be hidden with `display: none`, which removes it from the accessibility tree and the tab order, so no JavaScript breakpoint check is required.
 
-20.7. The task drawer SHALL render as a full-height bottom sheet below `48rem` and as a right-side panel at `48rem` and above, with identical content, field behaviour and close affordances in both forms.
+20.7. The task drawer SHALL render as a full-height bottom sheet below `48rem` and as a right-side panel at `48rem` and above, with identical content, field behaviour and close affordances in both forms. The two forms SHALL be the same `Dialog` differing only in positioning and sizing utilities, not separate components.
+
+20.7.1. The sidebar SHALL be the one surface permitted a JavaScript breakpoint check, because its two forms differ in behaviour rather than appearance: below `64rem` it is a focus-trapping, scroll-locking modal sheet, and at `64rem` and above it is a static region of the layout. WHEN the viewport crosses that boundary while the sheet is open, THEN the sheet SHALL close, so that it cannot persist as an invisible focus trap.
 
 20.8. Drag and drop SHALL work on touch. The system SHALL register dnd-kit's `TouchSensor` with a press delay and movement tolerance tuned so that vertical scrolling and horizontal column paging remain possible without accidentally initiating a drag. WHERE touch drag is impractical for a given surface, an equivalent non-drag path SHALL exist — reordering and status changes SHALL both be reachable from the card quick-action menu and the drawer.
 

@@ -137,7 +137,7 @@ Non-optimistic mutations await step 5 _before_ step 4, so the UI shows a pending
 src/
 ├── config/                       # Layer 0 — declarative registries, no logic
 │   ├── containers.ts             # CONTAINER_REGISTRY: permitted children, icon, labels
-│   ├── views.ts                  # VIEW_REGISTRY: id → label, icon, component
+│   ├── views.ts                  # VIEW_REGISTRY: id → label, icon (no component)
 │   ├── priorities.ts             # PRIORITY_CONFIG: label, token, rank
 │   ├── statusCategories.ts       # STATUS_CATEGORY_CONFIG: label, token, order
 │   ├── capabilities.ts           # ROLE_CAPABILITIES: Record<Role, Set<Capability>>
@@ -145,7 +145,8 @@ src/
 │   └── limits.ts                 # MAX_TASK_DEPTH, MAX_TITLE_LEN, PAGE_SIZE, …
 │
 ├── model/                        # Layer 1 — pure TS, no React
-│   ├── types.ts                  # Entity interfaces, unions, Result, ErrorCode
+│   ├── types.ts                  # Entity interfaces and unions
+│   ├── result.ts                 # Result, AppError, ErrorCode, ok/err/unwrap
 │   ├── state.ts                  # FlowboardState shape, empty state factory
 │   ├── seed.ts                   # Deterministic fixtures
 │   ├── permissions.ts            # roleOf / resolveGrant / canView / can
@@ -617,27 +618,30 @@ Everything downstream reads from this: `validation.ts` calls `canContain` instea
 ### View registry
 
 ```ts
-export interface ViewConfig {
+// src/config/views.ts — description only, no component reference
+export interface ViewMeta {
   id: ViewId;
   label: string;
   icon: LucideIcon;
-  component: ComponentType<{ listId: string }>;
   /** Smallest viewport at which this view is offered, in rem. */
   minViewportRem?: number;
 }
 
-export const VIEW_REGISTRY: Record<ViewId, ViewConfig> = {
-  board: {
-    id: "board",
-    label: "Board",
-    icon: Columns3,
-    component: KanbanBoard,
-  },
-  list: { id: "list", label: "List", icon: Rows3, component: TaskListView },
+export const VIEW_REGISTRY: Record<ViewId, ViewMeta> = {
+  board: { id: "board", label: "Board", icon: Columns3 },
+  list: { id: "list", label: "List", icon: Rows3 },
+};
+
+// src/views/viewComponents.ts — the component half, keyed by the same ViewId
+export const VIEW_COMPONENTS: Record<ViewId, ComponentType<ViewProps>> = {
+  board: KanbanBoard,
+  list: TaskListView,
 };
 ```
 
-`ViewSwitcher` maps over the registry, `NavigationContext` stores a `ViewId`, and the content region looks up `VIEW_REGISTRY[view].component`. A calendar view is one entry and one component — no switch statement anywhere gains a case.
+The registry is split in two on purpose. Holding the component in `src/config` would make a config module import the View layer — which the boundary lint rejects, and which would invert the dependency direction. Keeping the description in config and the component mapping in the View layer preserves both the single enumeration and the layering.
+
+`ViewSwitcher` maps over `VIEW_REGISTRY`, `NavigationContext` stores a `ViewId`, and the content region looks up `VIEW_COMPONENTS[view]`. A calendar view is one entry in each — no switch statement anywhere gains a case.
 
 ### Enumerations as configuration
 
@@ -939,19 +943,30 @@ The rule turns the architecture from a convention into a build failure.
 
 ## Context layer
 
-| Context             | State                                              | Consumers                                                                                    |
-| ------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `ToastContext`      | `toasts[]`, `push`, `dismiss`                      | every view-model hook, every mutation site                                                   |
-| `DensityContext`    | `'comfortable' \| 'compact'`, `setDensity`         | TaskCard, TaskRow, TreeItem, drawer sections                                                 |
-| `NavigationContext` | `selectedListId`, `view`, `openTaskId`, setters    | AppShell, Sidebar, TopBar, board, table, drawer                                              |
-| `ConfirmContext`    | `confirm(opts): Promise<boolean>`                  | archive and delete call sites                                                                |
-| `SimulationContext` | `SimulationSettings`, setters, `failNext()`        | DevPanel; read by `transport`                                                                |
-| `SidebarContext`    | `collapsed`, `width`, `expandedIds`, togglers      | Sidebar, SidebarTree, TreeItem                                                               |
-| `ViewportContext`   | `breakpoint`, `isAtLeast(token)`, `hasFinePointer` | Board (snap vs columns), list view (cards vs table), drawer (sheet vs panel), density toggle |
-
-`ViewportContext` wraps `matchMedia` against the `rem` breakpoint tokens from `src/config/breakpoints.ts`, so JS and CSS cannot disagree about where a breakpoint sits. It exists because three adaptations are structural rather than cosmetic — the board swaps snap-paging for multi-column, the list view swaps cards for a table, the drawer swaps sheet for panel — and rendering both forms and hiding one with `hidden md:block` would double the DOM and run both sets of hooks. Everything that _can_ be pure CSS stays pure CSS; this Context covers only what genuinely cannot.
+| Context             | State                                                    | Consumers                                       |
+| ------------------- | -------------------------------------------------------- | ----------------------------------------------- |
+| `ToastContext`      | `toasts[]`, `push`, `dismiss`                            | every view-model hook, every mutation site      |
+| `DensityContext`    | `'comfortable' \| 'compact'`, `setDensity`               | TaskCard, TaskRow, TreeItem, drawer sections    |
+| `NavigationContext` | `selectedListId`, `view`, `openTaskId`, setters          | AppShell, Sidebar, TopBar, board, table, drawer |
+| `ConfirmContext`    | `confirm(opts): Promise<boolean>`                        | archive and delete call sites                   |
+| `SimulationContext` | `SimulationSettings`, setters, `failNext()`              | DevPanel; read by `transport`                   |
+| `SidebarContext`    | `collapsed`, `width`, `expandedIds`, `isModal`, togglers | Sidebar, SidebarTree, TreeItem                  |
 
 Rules applied to all six (12.3–12.6): a typed `useX()` hook that throws outside its provider, a `useMemo`-wrapped value, composition in one `AppProviders`, and no domain entities — `NavigationContext` holds the _selected id_, never the selected list object.
+
+### Why there is no ViewportContext
+
+An earlier draft of this design had one, justified by three adaptations being "structural rather than cosmetic": the board swapping snap-paging for multi-column, the list view swapping cards for a table, the drawer swapping sheet for panel. Working through each, that was wrong — Tailwind handles all three:
+
+- **Board** — both forms render the same column elements. `snap-x snap-mandatory md:snap-none` on the track, `w-column-mobile snap-center md:w-column` on each column. The position indicator needs the _active_ column, which is scroll position, not viewport width.
+- **Drawer** — the same `Dialog` panel, repositioned: `inset-x-0 bottom-0 max-h-[92dvh] rounded-t-xl md:inset-y-0 md:right-0 md:w-drawer md:max-h-none md:rounded-none`.
+- **List view** — a genuine DOM difference, but `hidden md:block` / `md:hidden` covers it. `display: none` removes the hidden form from the accessibility tree and the tab order, so duplicating markup costs render work and nothing else. One view-model hook feeds both presentational components, so no logic is duplicated.
+- **dnd-kit sensors** — `DndContext` registers pointer, touch and keyboard sensors simultaneously and selects by event type. Touch is a pointer-capability concern, not a width one.
+- **Tooltips, density toggle, hover affordances** — `can-hover`, `coarse-pointer`, `hidden md:flex`. All CSS.
+
+Exactly one case survives: the **sidebar**. Below `lg` it is a focus-trapping, scroll-locking Headless UI `Dialog`; at `lg` it is a static `aside`. That difference is _behaviour_, and behaviour cannot be expressed in a media query. Rendering both forms would leave a mounted `Dialog` that still traps focus if a user opens the sheet at phone width and then widens the window. So `SidebarContext` owns an `isModal` flag backed by a single `matchMedia('(min-width: 64rem)')` subscription, and closes the sheet when that boundary is crossed.
+
+That one case is the entire justification for `src/config/breakpoints.ts`. It holds the breakpoint numbers, `minWidthQuery`, and the name of that boundary — nothing else. Because those numbers duplicate the `--breakpoint-*` tokens, `scripts/check-units.mjs` parses both files and fails the lint step when they drift in either direction, or when a breakpoint is declared in `px`. Duplication with an enforced check is defensible; duplication with a comment asserting the two "cannot disagree" is not.
 
 `ConfirmContext` exposing a promise is what keeps destructive flows readable at the call site:
 
@@ -1108,20 +1123,28 @@ The only stylesheet in the project. Tailwind v4 reads tokens from `@theme` and e
   --breakpoint-lg: 64rem;
   --breakpoint-xl: 80rem;
 
-  /* named dimensions, so no component carries a magic arbitrary value */
-  --size-sidebar: 16rem;
-  --size-sidebar-rail: 3.5rem;
-  --size-sidebar-min: 12rem;
-  --size-sidebar-max: 24rem;
-  --size-topbar: 3.5rem;
-  --size-column: 18.75rem;
-  --size-column-mobile: 22rem;
-  --size-drawer: 32.5rem;
-  --size-drawer-xl: 36rem;
-  --size-touch-target: 2.75rem;
-  --size-icon-sm: 0.875rem;
-  --size-icon-md: 1rem;
-  --size-icon-lg: 1.25rem;
+  /*
+   * Named dimensions, so no component carries a magic arbitrary value.
+   *
+   * Declared in the `--spacing-*` namespace deliberately: that is the namespace
+   * Tailwind v4 maps onto width, height, padding, margin and gap, so each token
+   * becomes `w-*`, `h-*`, `min-h-*` and `size-*`. A `--size-*` namespace emits
+   * the custom property but generates no utility — a silent failure. Verified
+   * against the built CSS during Phase 0.
+   */
+  --spacing-sidebar: 16rem;
+  --spacing-sidebar-rail: 3.5rem;
+  --spacing-sidebar-min: 12rem;
+  --spacing-sidebar-max: 24rem;
+  --spacing-topbar: 3.5rem;
+  --spacing-column: 18.75rem;
+  --spacing-column-mobile: 22rem;
+  --spacing-drawer: 32.5rem;
+  --spacing-drawer-xl: 36rem;
+  --spacing-touch: 2.75rem;
+  --spacing-icon-sm: 0.875rem;
+  --spacing-icon-md: 1rem;
+  --spacing-icon-lg: 1.25rem;
 
   /* shadow offsets stay in px — cosmetic depth, not layout; see 22.4 */
   --shadow-card: 0 1px 2px rgb(16 24 40 / 0.06), 0 1px 3px rgb(16 24 40 / 0.1);
@@ -1137,7 +1160,7 @@ The only stylesheet in the project. Tailwind v4 reads tokens from `@theme` and e
 
 `src/App.css` is deleted and the boilerplate in `index.css` replaced (13.3). No other stylesheet exists (13.2).
 
-Two things in this block are deliberate. **Every dimension is `rem`** — the `--size-*` group exists so that no component ships an arbitrary value like `w-[300px]`; they become `w-column`, `h-topbar`, `w-drawer` utilities, which is both the `rem` rule (22.1) and the "no magic numbers" half of maintainability (21.18). **Breakpoints are `rem`** so the responsive system participates in root-font-size scaling (22.6). `src/config/breakpoints.ts` re-exports the same four values for `ViewportContext`, keeping the `matchMedia` queries and the CSS in agreement.
+Two things in this block are deliberate. **Every dimension is `rem`** — the named group exists so that no component ships an arbitrary value like `w-[300px]`; they become `w-column`, `h-topbar`, `w-drawer`, `min-h-touch` utilities, which is both the `rem` rule (22.1) and the "no magic numbers" half of maintainability (21.18). **Breakpoints are `rem`** so the responsive system participates in root-font-size scaling (22.6). `src/config/breakpoints.ts` mirrors these values for the sidebar's single `matchMedia` subscription, and `scripts/check-units.mjs` fails the lint step if the two ever disagree.
 
 The only `px` here is in `box-shadow` offsets, which is one of the four exceptions in 22.4. A shadow is cosmetic depth; growing its blur radius with the user's font size would look wrong, not accessible.
 
@@ -1175,7 +1198,7 @@ Five roles only (13.9), each a fixed triple:
 
 ### Icons
 
-`lucide-react` at stroke width 1.75 and three sizes only — `0.875rem`, `1rem`, `1.25rem`, exposed as the `--size-icon-*` tokens (13.11, 22.1). `aria-hidden` when decorative; `IconButton` requires a `label`, making an unlabeled icon-only control a type error.
+`lucide-react` at stroke width 1.75 and three sizes only — `0.875rem`, `1rem`, `1.25rem`, exposed as the `--spacing-icon-*` tokens (13.11, 22.1). `aria-hidden` when decorative; `IconButton` requires a `label`, making an unlabeled icon-only control a type error.
 
 ### Layout — mobile base (`<40rem`)
 
@@ -1258,7 +1281,7 @@ Two documented exception lists intersect here:
 - **Inline `style`** (13.4, 19.9) — dnd-kit's `transform`/`transition` on sortable items, and the sidebar resizer's live width. Both annotated in code.
 - **`px` units** (22.4) — the sensor activation distance and touch tolerance. These are pointer-movement thresholds in device pixels, not rendered dimensions; expressing a drag threshold in `rem` would make it change with font size, which is meaningless.
 
-The sidebar resizer writes its live width in `rem` (`${px / 16}rem`) rather than `px`, clamped between `--size-sidebar-min` and `--size-sidebar-max`, so even the one dynamic dimension in the app obeys the unit rule.
+The sidebar resizer writes its live width in `rem` (`${px / 16}rem`) rather than `px`, clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, so even the one dynamic dimension in the app obeys the unit rule.
 
 ### Loading and feedback
 
@@ -1347,16 +1370,16 @@ Normalized maps plus `position` sorting keep mutations O(1) and renders scoped. 
 
 ## Known trade-offs
 
-| Trade-off                                         | Reasoning                                                                                                                                                                                                                                     |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tokens live in `index.css`                        | Tailwind v4 has no JS theme config. The file contains only `@import`, `@theme` and variant declarations — no authored rules. Documented in the README as the framework's config mechanism.                                                    |
-| Tasks hard-delete, containers archive             | The brief requires soft-delete for containers. Tombstoned tasks would complicate every selector for little demo value.                                                                                                                        |
-| No router                                         | Navigation state lives in `NavigationContext`. Deep links are a week-2 item; adding React Router later touches only that provider.                                                                                                            |
-| Markdown stored, not rendered                     | The description field keeps markdown source and renders as pre-wrapped text. A renderer is one dependency away but adds XSS surface for no evaluation gain.                                                                                   |
-| Status set is seeded, not editable in the UI      | Per-list status sets are modeled, persisted and enforced, but a status-editor UI is out of the time budget. The `statusSlice` actions exist and are tested.                                                                                   |
-| Only two stretch goals                            | Search and optimistic DnD rollback, per the brief's "at most two" and "ship a working MVP over half-finished stretch goals".                                                                                                                  |
-| Scope plumbing with one workspace                 | `{ workspaceId, userId }` threaded through selectors and guards is mild ceremony for a single-workspace app. It is the price of making the second workspace a seed change instead of a cross-cutting refactor, and 18.10 keeps it honest.     |
-| No workspace switcher UI                          | The model, scoping and tests support many workspaces; the chrome shows one. Building the switcher without a second real workspace would be UI for its own sake. Named as a day-4 item.                                                        |
-| `ViewportContext` alongside Tailwind variants     | Two sources of responsive truth is a real cost. It is confined to three structural swaps (board, list view, drawer) where rendering both forms would double the DOM; everything else is CSS-only. Both read the same `rem` breakpoint tokens. |
-| `px` retained for borders and shadows             | Scaling a hairline border with root font size produces blurred sub-pixel edges, and shadows are cosmetic depth rather than layout. Four narrow exceptions, listed in 22.4 and the README, verified by the grep in 22.7.                       |
-| Mobile verified manually, not by screenshot tests | Visual regression setup exceeds the time budget. Storybook viewport stories give per-component review; the README states which widths were checked by hand.                                                                                   |
+| Trade-off                                         | Reasoning                                                                                                                                                                                                                                       |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tokens live in `index.css`                        | Tailwind v4 has no JS theme config. The file contains only `@import`, `@theme` and variant declarations — no authored rules. Documented in the README as the framework's config mechanism.                                                      |
+| Tasks hard-delete, containers archive             | The brief requires soft-delete for containers. Tombstoned tasks would complicate every selector for little demo value.                                                                                                                          |
+| No router                                         | Navigation state lives in `NavigationContext`. Deep links are a week-2 item; adding React Router later touches only that provider.                                                                                                              |
+| Markdown stored, not rendered                     | The description field keeps markdown source and renders as pre-wrapped text. A renderer is one dependency away but adds XSS surface for no evaluation gain.                                                                                     |
+| Status set is seeded, not editable in the UI      | Per-list status sets are modeled, persisted and enforced, but a status-editor UI is out of the time budget. The `statusSlice` actions exist and are tested.                                                                                     |
+| Only two stretch goals                            | Search and optimistic DnD rollback, per the brief's "at most two" and "ship a working MVP over half-finished stretch goals".                                                                                                                    |
+| Scope plumbing with one workspace                 | `{ workspaceId, userId }` threaded through selectors and guards is mild ceremony for a single-workspace app. It is the price of making the second workspace a seed change instead of a cross-cutting refactor, and 18.10 keeps it honest.       |
+| No workspace switcher UI                          | The model, scoping and tests support many workspaces; the chrome shows one. Building the switcher without a second real workspace would be UI for its own sake. Named as a day-4 item.                                                          |
+| Breakpoint values duplicated in CSS and TS        | Tailwind cannot hand its theme to JavaScript, and the sidebar's modal/static switch is a behavioural decision a media query cannot make. Confined to that one case, and `scripts/check-units.mjs` fails the build on any drift between the two. |
+| `px` retained for borders and shadows             | Scaling a hairline border with root font size produces blurred sub-pixel edges, and shadows are cosmetic depth rather than layout. Four narrow exceptions, listed in 22.4 and the README, verified by the grep in 22.7.                         |
+| Mobile verified manually, not by screenshot tests | Visual regression setup exceeds the time budget. Storybook viewport stories give per-component review; the README states which widths were checked by hand.                                                                                     |

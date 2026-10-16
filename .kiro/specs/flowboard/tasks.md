@@ -5,7 +5,7 @@ Tasks are ordered so that each one builds on working code from the previous one.
 Three rules apply to every task below rather than being tasks of their own:
 
 - **Mobile-first.** Build each surface at the base viewport first and add `md:`/`lg:` enhancements in the same task. There is a verification pass in Phase 7, but responsive behaviour is not deferred to it — a view built desktop-first and narrowed later is the outcome this ordering exists to prevent.
-- **`rem` only.** Any dimension written during any task is `rem`, drawn from the Tailwind scale or the `--size-*` tokens. The audit in Phase 9 is a check, not the first time units are considered.
+- **`rem` only.** Any dimension written during any task is `rem`, drawn from the Tailwind scale or the named `--spacing-*` tokens. The audit in Phase 9 is a check, not the first time units are considered.
 - **Config over conditionals.** When a task needs a closed set — container types, views, priorities, capabilities — it reads the registry from `src/config` rather than restating the set inline.
 
 Pin exact resolved versions in `package.json` after each install step rather than leaving caret ranges.
@@ -14,61 +14,63 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 0 — Scaffold and toolchain
 
-- [ ] 1. Install dependencies and strip the boilerplate
-- [ ] 1.1 Install runtime dependencies
+- [x] 1. Install dependencies and strip the boilerplate
+- [x] 1.1 Install runtime dependencies
   - `zustand@5.0.15`, `immer@11.1.21`, `nanoid@6.0.2`, `lucide-react@1.57.0`, `@headlessui/react@2.2.10`
   - `@dnd-kit/core@6.3.1`, `@dnd-kit/sortable@10.0.0`, `@dnd-kit/utilities@3.2.2`, `@dnd-kit/modifiers@9.0.0`
   - _Requirements: 9.1, 11.10, 13.10, 13.11_
-- [ ] 1.2 Install and wire Tailwind v4
+- [x] 1.2 Install and wire Tailwind v4
   - `tailwindcss@4.3.3` + `@tailwindcss/vite@4.3.3`, register the plugin in `vite.config.ts`
   - _Requirements: 13.1, 13.2_
-- [ ] 1.3 Install the test toolchain
+- [x] 1.3 Install the test toolchain
   - `vitest@5.0.5`, `@vitest/coverage-v8@5.0.5`, `jsdom@30.1.3`, `@testing-library/react@16.3.3`, `@testing-library/user-event@14.6.8`, `@testing-library/jest-dom`
   - Add `test` (single-run), `test:watch` and `coverage` scripts; create `src/test/setup.ts` with jest-dom matchers and zero simulated latency
   - _Requirements: 18.1, 18.8_
-- [ ] 1.4 Delete the Vite boilerplate
+- [x] 1.4 Delete the Vite boilerplate
   - Remove `src/App.css`, `src/assets/hero.png`, `src/assets/react.svg`, `src/assets/vite.svg`, `public/icons.svg`; reduce `src/App.tsx` to a shell placeholder
   - _Requirements: 13.3_
-- [ ] 1.5 Author `src/index.css` as the project's only stylesheet
+- [x] 1.5 Author `src/index.css` as the project's only stylesheet
   - Replace all boilerplate rules with `@import "tailwindcss"`, the full `@theme` token block and the custom variants
   - Tokens: neutrals, brand, semantic, five priority tokens, four status tokens, `fontFamily`, `borderRadius`, `boxShadow`
   - `rem` breakpoint tokens `--breakpoint-sm/md/lg/xl` at `40/48/64/80rem`
-  - Named `--size-*` dimension tokens in `rem` (sidebar, rail, sidebar min/max, topbar, column, column-mobile, drawer, drawer-xl, touch-target, three icon sizes) so no component needs an arbitrary value
+  - Named `--spacing-*` dimension tokens in `rem` (sidebar, rail, sidebar min/max, topbar, column, column-mobile, drawer, drawer-xl, touch-target, three icon sizes) so no component needs an arbitrary value
   - Variants: `density-compact` and `can-hover (@media (hover: hover) and (pointer: fine))`
   - Do not override the root font size
   - _Requirements: 13.2, 13.5, 13.6, 16.3, 20.3, 20.10, 22.1, 22.6, 22.8_
-- [ ] 1.6 Add the lint rules that enforce the architecture
+- [x] 1.6 Add the lint rules that enforce the architecture
   - `no-restricted-imports` zones: Model may not import React/Zustand/Controller/View; `components/ui` may not import Controller or Model state; views may import only `controllers/hooks/**`, never `controllers/store`; `src/config` may not import any other layer
   - Add rules failing on circular imports, unused exports and `export default`
   - Enable TypeScript `strict`; forbid `any` in application code
   - Also forbid the Model importing the browser (`window`, `localStorage`) or any adapter, so it stays runnable in a non-browser runtime
   - Verify the rules actually fail by introducing a deliberate violation, then reverting it
   - _Requirements: 10.1, 10.4, 10.5, 11.4, 21.12, 21.13, 21.16, 21.20_
-- [ ] 1.7 Add the `cn()` class-merge helper and date utilities in `src/lib`
+- [x] 1.7 Add the `cn()` class-merge helper and date utilities in `src/lib`
   - _Requirements: 11.3_
-- [ ] 1.8 Add the `px` guard
+- [x] 1.8 Add the `px` guard
   - A lint rule or `scripts/check-units.mjs` that fails when `px` appears in a Tailwind arbitrary value, in a dimensional `@theme` token, or in an inline `style` layout computation
   - Allow-list the four exceptions: hairline borders/rings/dividers, `box-shadow` offsets, dnd-kit sensor thresholds, raster asset intrinsic sizes
   - Wire it into the `lint` script so the rule holds continuously rather than at review time
   - _Requirements: 22.3, 22.4, 22.7_
 
-- [ ] 1.9 Author the configuration registries in `src/config`
+- [x] 1.9 Author the configuration registries in `src/config`
   - These land before the Model because validation, selectors and views all read from them
-- [ ] 1.9.1 `containers.ts` — `ContainerTypeConfig` and `CONTAINER_REGISTRY`
+- [x] 1.9.1 `containers.ts` — `ContainerTypeConfig` and `CONTAINER_REGISTRY`
   - Per type: `label`, `labelPlural`, `icon`, `childTypes`, `holdsTasks`, `grantable`; plus the `canContain(parent, child)` helper
   - _Requirements: 1.2, 21.4, 21.18_
-- [ ] 1.9.2 `views.ts` — `ViewConfig` and `VIEW_REGISTRY` keyed by `ViewId`
+- [x] 1.9.2 `views.ts` — `ViewMeta` and `VIEW_REGISTRY` keyed by `ViewId`
+  - Metadata only. The component mapping lives in `src/views/viewComponents.ts` keyed by the same `ViewId`, because holding a component in `src/config` would invert the dependency direction and the boundary lint rejects it
   - _Requirements: 21.5_
-- [ ] 1.9.3 `priorities.ts` and `statusCategories.ts`
+- [x] 1.9.3 `priorities.ts` and `statusCategories.ts`
   - Each entry carries `label`, display `token`, `icon` and `rank`; `rank` is what comparators sort on
   - _Requirements: 5.3, 13.6, 21.6_
-- [ ] 1.9.4 `capabilities.ts` — the `Capability` union and `ROLE_CAPABILITIES: Record<Role, ReadonlySet<Capability>>`
+- [x] 1.9.4 `capabilities.ts` — the `Capability` union and `ROLE_CAPABILITIES: Record<Role, ReadonlySet<Capability>>`
   - Includes `workspace:bypass`, so the admin bypass is a table entry rather than a role comparison
   - _Requirements: 8.9, 21.7_
-- [ ] 1.9.5 `breakpoints.ts` and `limits.ts`
-  - Breakpoints re-export the `rem` values from the `@theme` block for `ViewportContext`, so CSS and JS cannot disagree
+- [x] 1.9.5 `breakpoints.ts` and `limits.ts`
+  - `breakpoints.ts` is deliberately minimal: the `rem` values, `minWidthQuery`, and the name of the sidebar's modal boundary. Tailwind owns breakpoints for styling; this module exists only for the one behavioural check in 20.7.1
+  - Parity with the `--breakpoint-*` tokens enforced by `scripts/check-units.mjs`, which fails on value drift, missing tokens in either direction, and `px`-declared breakpoints
   - `limits.ts`: `MAX_TASK_DEPTH`, `MAX_TITLE_LEN`, `MAX_NAME_LEN`, `PAGE_SIZE`, `POSITION_GAP`
-  - _Requirements: 12.7, 20.3, 21.9, 22.6_
+  - _Requirements: 12.7, 12.8, 20.3, 21.9, 22.6_
 
 ---
 
@@ -227,10 +229,10 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 9.7, 9.8, 12.2_
 - [ ] 9.6 `SidebarContext` — `collapsed`, `width`, `expandedIds`, togglers, session-persisted
   - _Requirements: 6.2, 6.6, 12.2, 16.2_
-- [ ] 9.7 `ViewportContext` — `breakpoint`, `isAtLeast(token)`, `hasFinePointer`
-  - Built from `matchMedia` queries using the `rem` tokens in `src/config/breakpoints.ts`, so JS and CSS agree on breakpoint positions
-  - Used only for the three structural swaps (board snap vs columns, list cards vs table, drawer sheet vs panel); anything achievable with Tailwind variants stays in CSS
-  - _Requirements: 12.2, 12.7, 20.5, 20.6, 20.7_
+- [ ] 9.7 Add the sidebar's modal/static boundary to `SidebarContext`
+  - An `isModal` flag from a single `matchMedia(minWidthQuery('lg'))` subscription, closing the sheet when the boundary is crossed so it cannot persist as an invisible focus trap
+  - This is the only JavaScript breakpoint observation in the app. The board, list view, drawer, dnd-kit sensors, tooltips and density toggle are all handled by Tailwind variants — confirm each stays that way rather than reaching for this flag
+  - _Requirements: 12.7, 20.7.1_
 - [ ] 9.8 Apply the shared Context rules and compose `AppProviders`
   - Typed `useX()` hook per Context that throws outside its provider, `useMemo`-wrapped values, one explicit provider composition
   - _Requirements: 12.3, 12.4, 12.5_
@@ -264,7 +266,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - Density clamped to comfortable below `md`
   - _Requirements: 13.8, 13.9, 16.3, 20.9_
 - [ ] 10.6 Verify the primitives use no arbitrary `px` values
-  - Every dimension comes from the Tailwind scale or a `--size-*` token; run the 1.8 guard against `src/components/ui`
+  - Every dimension comes from the Tailwind scale or a named `--spacing-*` token; run the 1.8 guard against `src/components/ui`
   - _Requirements: 22.1, 22.2, 22.3_
 
 - [ ] 11. Set up Storybook
@@ -272,7 +274,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - Reuse the app's Vite config so `@tailwindcss/vite` is active; import `src/index.css` in `preview.ts`; add the `storybook` script
   - _Requirements: 11.6_
 - [ ] 11.1.1 Register viewport presets matching the breakpoint tokens
-  - `base` (`20rem`), `sm` (`40rem`), `md` (`48rem`), `lg` (`64rem`), `xl` (`80rem`), sourced from `src/config/breakpoints.ts` so Storybook, CSS and `ViewportContext` share one definition
+  - `base` (`20rem`), `sm` (`40rem`), `md` (`48rem`), `lg` (`64rem`), `xl` (`80rem`), sourced from `src/config/breakpoints.ts` so Storybook and the stylesheet share one definition, with the parity check covering the rest
   - _Requirements: 20.3, 20.14_
 - [ ] 11.2 Write a story per primitive covering variants, sizes and disabled/loading/error states
   - _Requirements: 11.7_
@@ -320,7 +322,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 6.5, 8.9, 8.11_
 - [ ] 13.4 Collapse-to-rail and drag-to-resize at `lg` and above
   - Both persisted; the resizer's live width is the second documented inline-`style` exception
-  - The resizer writes `rem` (`${px / 16}rem`), clamped between `--size-sidebar-min` and `--size-sidebar-max`, so even the one dynamic dimension obeys the unit rule
+  - The resizer writes `rem` (`${px / 16}rem`), clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, so even the one dynamic dimension obeys the unit rule
   - _Requirements: 6.6, 13.4, 16.2, 22.1, 22.3_
 - [ ] 13.4.1 Off-canvas sidebar below `lg`
   - Slide-over built on the `Drawer` primitive, opened from the top-bar menu button, closing on selection, Escape and overlay tap; focus trapped while open and restored on close
@@ -391,7 +393,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 5.1, 5.6, 16.7, 17.4_
 - [ ] 15.1.1 `TaskCardList` — the base-viewport form of the list view
   - Stacked cards showing title, status, priority, due date and assignees; same drawer on tap; same sort options
-  - Selected via `ViewportContext` rather than by rendering both forms and hiding one
+  - Both forms driven by the same `useTaskTable` hook and toggled with `md:hidden` / `hidden md:block`; `display: none` keeps the inactive form out of the accessibility tree and tab order, so no JavaScript breakpoint check is needed
   - _Requirements: 20.6_
 - [ ] 15.2 Sorting by due date and priority
   - Both directions, active column and direction indicated, ranking from `PRIORITY_CONFIG[p].rank`, null due dates always last, sort direction exposed to assistive technology
