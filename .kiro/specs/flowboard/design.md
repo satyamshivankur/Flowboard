@@ -792,42 +792,64 @@ The shell is `h-dvh`, not `h-screen`. On mobile Safari and Chrome, `100vh` inclu
 ### Store composition
 
 ```ts
+/*
+ * Action groups nest under one `actions` key. Spreading them onto the root as
+ * `containers`/`tasks`/`statuses` — as an earlier draft of this design did —
+ * collides head-on with the entity maps of the same name in FlowboardState.
+ * Nesting keeps both, and keeps `useStore(s => s.tasks)` meaning the data.
+ */
+export interface StoreActions {
+  session: SessionActions;
+  container: ContainerActions;
+  task: TaskActions;
+  status: StatusActions;
+}
+
 export type StoreState = FlowboardState &
-  SessionState & {
-    containers: ContainerActions; // namespaced action groups
-    tasks: TaskActions;
-    statuses: StatusActions;
-    session: SessionActions;
-  };
+  SessionState & { actions: StoreActions };
 
 /**
  * Adapters are injected, not imported inside the slices, so tests can build a
  * store on memory persistence and zero-latency transport (21.10, 21.11, 18.11).
  */
-export const createFlowboardStore = (deps: {
-  persistence: PersistenceAdapter;
-  transport: Transport;
+export const createFlowboardStore = (options: {
+  persistence?: PersistenceAdapter;
+  transport?: Transport;
   initialState?: FlowboardState;
-}) =>
-  create<StoreState>()(
-    persist(
-      immer((set, get) => ({
-        ...(deps.initialState ?? createSeedState()),
-        ...sessionSlice(set, get, deps),
-        ...containerSlice(set, get, deps),
-        ...taskSlice(set, get, deps),
-        ...statusSlice(set, get, deps),
-      })),
-      {
-        name: "flowboard:v1",
-        partialize: (s) => pickDomainState(s), // never persist actions or UI flags
-        migrate: (persisted, v) => (v === 1 ? persisted : createSeedState()),
+  autoPersist?: boolean;
+}) => {
+  const deps = {
+    persistence: options.persistence ?? createLocalStorageAdapter(),
+    transport: options.transport ?? simulatedTransport,
+  };
+
+  const store = create<StoreState>()((set, get) => {
+    const context = { deps, getState: get, setState: /* immer recipe */ ... };
+
+    return {
+      ...(options.initialState ?? createSeedState()),
+      currentUserId: /* first admin member */ ...,
+      isHydrating: false,
+      loadingListId: null,
+      actions: {
+        session: createSessionSlice(context),
+        container: createContainerSlice(context),
+        task: createTaskSlice(context),
+        status: createStatusSlice(context),
       },
-    ),
-  );
+    };
+  });
+
+  // Save on domain change only; a session-only change writes nothing.
+  store.subscribe(/* reference-compare the top-level maps */);
+
+  return store;
+};
 ```
 
-`partialize` keeps actions and transient loading flags out of storage. `migrate` falls back to seed on any version mismatch, and the deserializer validates shape before accepting a payload (9.11).
+**Zustand's `persist` middleware is deliberately not used.** Its storage contract is string-shaped (`getItem`/`setItem`), whereas `PersistenceAdapter` is async and owns payload validation and version fallback. Wrapping the adapter in middleware that wants something narrower would make the middleware the seam instead of the adapter. Explicit `hydrate()` plus a save subscription keeps the interface in charge, and is what lets `persistence.test.ts` assert hydration, the stale-current-user fallback and the no-write-on-user-switch behaviour directly.
+
+The save subscription compares the top-level maps by reference rather than deep-comparing. Immer replaces a map only when its contents change, so this skips a write for a pure session change like switching user — which is both correct and the cheapest possible check. `src/model/persistence.ts` owns serialization, shape validation and the version guard; the adapter only moves strings (9.11).
 
 ### Transport adapter
 

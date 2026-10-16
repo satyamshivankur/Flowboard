@@ -148,68 +148,69 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 
 ## Phase 2 — Controller layer
 
-- [ ] 6. Build the adapters, store and mutation pipeline
-- [ ] 6.1 Write the adapter interfaces and implementations
+- [x] 6. Build the adapters, store and mutation pipeline
+- [x] 6.1 Write the adapter interfaces and implementations
   - `adapters/persistence/types.ts` — `PersistenceAdapter` with async `load`/`save`/`clear`; async even though `localStorage` is not, because a sync signature cannot later become async without changing every caller
   - `adapters/persistence/localStorage.ts` — serialize, deserialize, shape validation, version guard with seed fallback
   - `adapters/persistence/memory.ts` — for tests
   - _Requirements: 9.11, 21.10_
-- [ ] 6.1.1 Write `adapters/transport/simulated.ts` behind a `Transport` interface
+- [x] 6.1.1 Write `adapters/transport/simulated.ts` behind a `Transport` interface
   - `SimulationSettings` (defaults: 120–380ms jitter, `failureRate: 0`, `failNext: false`), a `NETWORK` error on trigger, a settings subscription the dev panel drives, and a zero-latency test mode
   - Controller actions call `transport.run(...)` and contain no transport-specific logic
   - _Requirements: 9.6, 9.7, 9.9, 18.8, 21.11_
-- [ ] 6.2 Write `src/controllers/pipeline.ts`
+- [x] 6.2 Write `src/controllers/pipeline.ts`
   - The shared `validate → authorize → [snapshot] → apply → transport → result` runner, plus `snapshot`/`restore` helpers scoped to affected slices
   - `authorize` takes a `Scope`, so no action resolves the current workspace or user itself
   - _Requirements: 9.5, 9.10, 10.6, 21.2_
-- [ ] 6.3 Compose the Zustand store with `immer` and `persist`
+- [x] 6.3 Compose the Zustand store with `immer` and `persist`
   - `createFlowboardStore({ persistence, transport, initialState? })` — adapters injected, never imported inside slices
   - Versioned key `flowboard:v1`, `partialize` excluding actions and transient flags, `migrate` falling back to seed on mismatch, and a `resetToSeed` action
   - _Requirements: 9.1, 9.4, 9.11, 21.10, 21.11_
-- [ ] 6.4 Write `persistence.test.ts`
+- [x] 6.4 Write `persistence.test.ts`
   - Build the store on `memoryAdapter` and prove no coupling to `localStorage`
   - _Requirements: 18.11, 21.10_
 
-- [ ] 7. Implement the store slices
-- [ ] 7.1 `sessionSlice` — `currentUserId`, `switchUser`, first-load and per-list loading flags
+- [x] 7. Implement the store slices
+- [x] 7.1 `sessionSlice` — `currentUserId`, `switchUser`, first-load and per-list loading flags
   - _Requirements: 8.2, 8.3, 14.1, 14.2_
-- [ ] 7.2 `containerSlice` — `createContainer`, `renameContainer`, `archiveContainer` (cascading), `unarchiveContainer`, `reorderContainer`, `moveContainer`
+- [x] 7.2 `containerSlice` — `createContainer`, `renameContainer`, `archiveContainer` (cascading), `unarchiveContainer`, `reorderContainer`, `moveContainer`
   - All admin-only via `can()`; all returning `Result`
   - _Requirements: 1.4, 1.5, 1.6, 1.7, 1.8, 8.9, 8.11_
-- [ ] 7.3 `taskSlice` — `createTask`, `updateTask`, `deleteTask` (cascading to subtasks), `changeStatus`, `reorderTask`, `moveTaskToList` (with status remapping by category and subtask co-move), `toggleComplete`, `createSubtask`
+- [x] 7.3 `taskSlice` — `createTask`, `updateTask`, `deleteTask` (cascading to subtasks), `changeStatus`, `reorderTask`, `moveTaskToList` (with status remapping by category and subtask co-move), `toggleComplete`, `createSubtask`
   - Bump `updatedAt` on every success
   - _Requirements: 2.3, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12_
-- [ ] 7.4 `statusSlice` — per-list status CRUD and reorder, guarding the minimum one-per-category invariant
+- [x] 7.4 `statusSlice` — per-list status CRUD and reorder, guarding the minimum one-per-category invariant
   - _Requirements: 3.1, 3.2, 3.3_
-- [ ] 7.5 Implement optimistic `moveTask` with exact rollback
+- [x] 7.5 Implement optimistic `moveTask` with exact rollback
   - Snapshot the affected lists' task slices, apply immediately, restore on `NETWORK` failure
   - _Requirements: 4.8, 9.10, 14.12, 23.3_
-- [ ] 7.6 Write Controller tests
+- [x] 7.6 Write Controller tests
   - `pipeline.test.ts`: a denied mutation returns `FORBIDDEN` and leaves state deep-equal to its snapshot
   - `taskSlice.test.ts`: cross-list move with status remapping, subtask cascade delete, `updatedAt` bump
   - `rollback.test.ts`: `failNext` during a drag restores pre-drag state exactly
   - _Requirements: 18.4, 18.5, 18.6_
 
-- [ ] 8. Build the view-model hooks
-- [ ] 8.0 `useScope` — the only reader of `activeWorkspaceId`, composed by every other hook
+- [x] 8. Build the view-model hooks
+- [x] 8.0 `useScope` — the only reader of `activeWorkspaceId`, composed by every other hook
   - _Requirements: 21.1, 21.2_
-- [ ] 8.1 `useSession`, `usePermissions`
+- [x] 8.1 `useSession`, `usePermissions`
   - _Requirements: 8.2, 8.3, 8.12_
-- [ ] 8.2 `useVisibleTree`
+- [x] 8.2 `useVisibleTree`
   - _Requirements: 6.1, 6.4_
-- [ ] 8.3 `useBoard`
+- [x] 8.3 `useBoard`
   - Returns `{ columns, isLoading, canEdit, onMoveTask, onQuickUpdate, onCreateTask }`
   - _Requirements: 4.1, 4.4, 4.5_
-- [ ] 8.4 `useTaskTable`
+- [x] 8.4 `useTaskTable`
   - Returns `{ rows, total, hasMore, sort, isLoading, onSortChange, onLoadMore }`
   - _Requirements: 5.1, 5.2, 9.12_
-- [ ] 8.5 `useTaskDrawer`
+- [x] 8.5 `useTaskDrawer`
   - Returns `{ task, list, statuses, assignees, breadcrumb, fieldState, canEdit, onFieldSave, onMoveToList, onDelete }` with per-field pending/error state
   - _Requirements: 7.4, 7.7, 7.8, 7.9, 7.10_
-- [ ] 8.6 `useContainerActions`
+- [x] 8.6 `useContainerActions`
   - _Requirements: 1.4, 6.5_
 - [ ] 8.7 Route every failed `Result` through `ToastContext` inside the hooks
   - Single error-surfacing path; no component repeats it
+  - **Deferred to Phase 3**, which is where `ToastContext` is built. The hooks currently return `Result` to their caller; wiring is one wrapper per mutation callback once the provider exists. Listed here rather than silently moved, because an unwired error path is the kind of gap that gets forgotten
   - _Requirements: 14.4, 14.5_
 
 ---

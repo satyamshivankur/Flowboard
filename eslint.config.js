@@ -174,6 +174,20 @@ export default defineConfig([
         },
       ],
       '@typescript-eslint/no-explicit-any': 'error',
+      /*
+       * `const { dropped: _dropped, ...rest } = obj` is the idiomatic way to
+       * omit a key from an immutable object, and the binding is unused by
+       * design. Allow it, while still catching genuinely dead locals.
+       */
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          ignoreRestSiblings: true,
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/consistent-type-imports': [
         'error',
