@@ -23,9 +23,11 @@ import { DueDateChip } from "@/components/ui/DueDateChip";
 import { IconButton } from "@/components/ui/IconButton";
 import { Menu, type MenuItemSpec } from "@/components/ui/Menu";
 import { PriorityBadge } from "@/components/ui/PriorityBadge";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { DUE_DATE_PRESETS } from "@/config/dueDates";
 import { PRIORITIES, PRIORITY_CONFIG } from "@/config/priorities";
+import type { StatusColorToken } from "@/config/statusCategories";
 import type { TaskCardViewModel } from "@/controllers/hooks/useBoard";
 import { cn } from "@/lib/cn";
 import { dueDateAtDays } from "@/lib/date";
@@ -41,6 +43,12 @@ const MAX_MENU_LISTS = 5;
 export interface TaskCardStatusOption {
   readonly id: string;
   readonly name: string;
+  /**
+   * Carried so the quick menu can show the same dot the column header and the
+   * drawer picker show. Without it this menu was the one place a status
+   * appeared as bare text (Requirement 13.6).
+   */
+  readonly colorToken: StatusColorToken;
 }
 
 export interface TaskCardProps {
@@ -127,6 +135,16 @@ export function TaskCard({
       .map((status) => ({
         id: `status-${status.id}`,
         label: `Move to ${status.name}`,
+        content: (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-ink-400">Move to</span>
+            <StatusPill
+              name={status.name}
+              colorToken={status.colorToken}
+              variant="dot-label"
+            />
+          </span>
+        ),
         disabled: !canEdit,
         disabledReason: readOnlyReason,
         onSelect: () => {

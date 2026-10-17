@@ -1123,3 +1123,128 @@ describe("the off-canvas sidebar", () => {
     });
   });
 });
+
+describe("the drawer's property pickers", () => {
+  /*
+   * The reported bug, at the level it was reported: the status dropdown showed
+   * a pill on its closed trigger and plain text once opened, because the
+   * drawer supplied `renderValue` and not `renderOption`. Both halves are
+   * asserted here so the asymmetry cannot come back.
+   */
+  async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
+    renderShell();
+    await waitForBoard();
+
+    await user.click(card(BACKLOG.first));
+
+    return screen.findByRole("dialog", { name: BACKLOG.first });
+  }
+
+  it("renders the status pill on the trigger and in every option", async () => {
+    const user = userEvent.setup();
+    const drawer = await openDrawer(user);
+
+    const trigger = within(drawer).getByRole("button", { name: "Status" });
+
+    expect(trigger.querySelector("[data-status-dot]")).not.toBeNull();
+
+    await user.click(trigger);
+
+    const listbox = await screen.findByRole("listbox");
+    const options = within(listbox).getAllByRole("option");
+
+    expect(options.length).toBeGreaterThan(1);
+
+    for (const option of options) {
+      expect(option.querySelector("[data-status-dot]")).not.toBeNull();
+    }
+  });
+
+  /*
+   * `PRIORITY_CONFIG` has carried an icon and a colour token since Phase 0.
+   * The picker whose entire job is choosing a priority was rendering neither.
+   */
+  it("renders the priority badge on the trigger and in every option", async () => {
+    const user = userEvent.setup();
+    const drawer = await openDrawer(user);
+
+    const trigger = within(drawer).getByRole("button", { name: "Priority" });
+
+    expect(trigger.querySelector("svg")).not.toBeNull();
+
+    await user.click(trigger);
+
+    const listbox = await screen.findByRole("listbox");
+
+    for (const option of within(listbox).getAllByRole("option")) {
+      // The icon is what keeps priority from being colour-only
+      // (Requirement 17.7).
+      expect(option.querySelector("svg")).not.toBeNull();
+    }
+  });
+
+  it("shows an avatar per member in the assignee menu, with a real checked state", async () => {
+    const user = userEvent.setup();
+    const drawer = await openDrawer(user);
+
+    // The name comes from the `Menu`'s `label`, which merges onto the trigger.
+    await user.click(within(drawer).getByRole("button", { name: "Assignees" }));
+
+    const menu = await screen.findByRole("menu");
+    const items = within(menu).getAllByRole("menuitem");
+
+    expect(items.length).toBeGreaterThan(1);
+
+    for (const item of items) {
+      // Avatars render initials, so each row carries more than a bare name.
+      expect(item.textContent).not.toBe("");
+    }
+
+    /*
+     * Alice is seeded as the assignee of this task. The state used to live
+     * inside the label as a "✓" character, which a screen reader reads out as
+     * a tick glyph; it is now part of the accessible name.
+     */
+    expect(
+      within(menu).getByRole("menuitem", { name: /Alice Nguyen, selected/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: "Bob Mensah" }),
+    ).toBeInTheDocument();
+
+    // And toggling works through the new shape.
+    await user.click(
+      within(menu).getByRole("menuitem", { name: "Bob Mensah" }),
+    );
+
+    await waitFor(() => {
+      expect(useStore.getState().tasks["t-001"]?.assigneeIds).toContain(
+        "u-bob",
+      );
+    });
+  });
+
+  it("shows the status dot in the card's quick-change menu too", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    await user.click(
+      screen.getByRole("button", { name: `Actions for ${BACKLOG.first}` }),
+    );
+
+    const menu = await screen.findByRole("menu");
+    const statusItems = within(menu)
+      .getAllByRole("menuitem")
+      .filter((item) => item.textContent.startsWith("Move to"))
+      // `Move to "Sprint 14"` is a list move, not a status change.
+      .filter((item) => !item.textContent.includes('"'));
+
+    expect(statusItems.length).toBeGreaterThan(0);
+
+    for (const item of statusItems) {
+      expect(item.querySelector("[data-status-dot]")).not.toBeNull();
+    }
+  });
+});

@@ -9,20 +9,23 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import type { AvatarColorToken } from "@/config/avatars";
 import {
   PRIORITIES,
   PRIORITY_CONFIG,
   type Priority,
 } from "@/config/priorities";
 
+import { Avatar } from "./Avatar";
 import { Checkbox } from "./Checkbox";
 import { IconButton } from "./IconButton";
 import { Input } from "./Input";
 import { Menu } from "./Menu";
 import { PriorityBadge } from "./PriorityBadge";
 import { SegmentedControl } from "./SegmentedControl";
-import { Select } from "./Select";
+import { Select, type SelectOption } from "./Select";
 import { Separator } from "./Separator";
+import { StatusPill } from "./StatusPill";
 import { Textarea } from "./Textarea";
 import { Tooltip } from "./Tooltip";
 
@@ -198,8 +201,72 @@ function SegmentedDemo() {
 
 export const Segmented: Story = { render: () => <SegmentedDemo /> };
 
+/*
+ * The three shapes a real option takes in this app. Each carries its own
+ * visual, so the closed trigger and the open list cannot disagree — which is
+ * the failure the old `renderOption`/`renderValue` pair made easy.
+ */
+const STATUS_OPTIONS: SelectOption<string>[] = [
+  {
+    value: "st-todo",
+    label: "To do",
+    content: (
+      <StatusPill name="To do" colorToken="status-todo" variant="dot-label" />
+    ),
+  },
+  {
+    value: "st-active",
+    label: "In progress",
+    content: (
+      <StatusPill
+        name="In progress"
+        colorToken="status-active"
+        variant="dot-label"
+      />
+    ),
+  },
+  {
+    value: "st-done",
+    label: "Done",
+    content: (
+      <StatusPill name="Done" colorToken="status-done" variant="dot-label" />
+    ),
+  },
+];
+
+const ASSIGNEE_OPTIONS: SelectOption<string>[] = [
+  { value: "u-alice", label: "Alice Nguyen", avatarToken: "avatar-indigo" },
+  { value: "u-bob", label: "Bob Mensah", avatarToken: "avatar-teal" },
+  { value: "u-carol", label: "Carol Diaz", avatarToken: "avatar-amber" },
+].map((user) => ({
+  value: user.value,
+  label: user.label,
+  content: (
+    <span className="flex min-w-0 items-center gap-2">
+      <Avatar
+        name={user.label}
+        avatarToken={user.avatarToken as AvatarColorToken}
+        size="xs"
+        showTooltip={false}
+      />
+      <span className="truncate">{user.label}</span>
+    </span>
+  ),
+  // The trigger has less room than a row, so it shows the avatar alone.
+  triggerContent: (
+    <Avatar
+      name={user.label}
+      avatarToken={user.avatarToken as AvatarColorToken}
+      size="xs"
+      showTooltip={false}
+    />
+  ),
+}));
+
 function SelectDemo() {
   const [priority, setPriority] = useState<Priority | null>("high");
+  const [status, setStatus] = useState<string | null>("st-active");
+  const [assignee, setAssignee] = useState<string | null>(null);
 
   return (
     <div className="flex max-w-xs flex-col gap-5">
@@ -210,13 +277,25 @@ function SelectDemo() {
         options={PRIORITIES.map((value) => ({
           value,
           label: PRIORITY_CONFIG[value].label,
+          content: <PriorityBadge priority={value} showLabel />,
         }))}
-        renderOption={(option) => (
-          <PriorityBadge priority={option.value} showLabel />
-        )}
-        renderValue={(option) => (
-          <PriorityBadge priority={option.value} showLabel />
-        )}
+      />
+
+      <Select
+        label="Status"
+        value={status}
+        onChange={setStatus}
+        options={STATUS_OPTIONS}
+      />
+
+      {/* `triggerContent` differing from `content`: the row shows the avatar
+          and the name, the button shows only the avatar. */}
+      <Select
+        label="Assignee"
+        value={assignee}
+        onChange={setAssignee}
+        placeholder="Unassigned"
+        options={ASSIGNEE_OPTIONS}
       />
 
       <Select

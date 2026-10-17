@@ -173,6 +173,7 @@ export function KanbanBoard({ listId }: ViewProps) {
       board.columns.map((column) => ({
         id: column.statusId,
         name: column.name,
+        colorToken: column.colorToken,
       })),
     [board.columns],
   );

@@ -4,7 +4,7 @@ import {
   MenuItem,
   MenuItems,
 } from "@headlessui/react";
-import type { LucideIcon } from "lucide-react";
+import { Check, type LucideIcon } from "lucide-react";
 import { Fragment, useId, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
@@ -20,6 +20,15 @@ export interface MenuItemSpec {
   readonly id: string;
   readonly label: string;
   readonly icon?: LucideIcon | undefined;
+  /**
+   * What the item *looks* like, when a text label is not enough — an avatar
+   * beside a name, a status dot beside a status. `label` stays the accessible
+   * name either way, so a purely graphical item is still announced
+   * (Requirement 17.1).
+   */
+  readonly content?: ReactNode | undefined;
+  /** Renders a check and says "selected" in the name, for toggleable items. */
+  readonly selected?: boolean | undefined;
   readonly tone?: "default" | "danger" | undefined;
   readonly disabled?: boolean | undefined;
   /** Shown when disabled, so a greyed item explains itself (Req 8.11). */
@@ -106,14 +115,16 @@ export function Menu({
                  * coarse pointer, so the same item would be called two
                  * different things on two devices.
                  */
-                aria-label={item.label}
+                aria-label={
+                  item.selected === true ? `${item.label}, selected` : item.label
+                }
                 aria-describedby={showReason ? reasonId : undefined}
                 onClick={item.onSelect}
                 className={cn(
                   "flex w-full items-center gap-2 rounded px-2.5 text-left text-sm",
                   // `min-h` rather than a fixed height: a disabled item grows
                   // to fit the reason it now states inline.
-                  "min-h-8 py-1 coarse-pointer:min-h-touch",
+                  "min-h-9 py-1.5 coarse-pointer:min-h-touch",
                   "transition-colors motion-reduce:transition-none",
                   "disabled:pointer-events-none disabled:opacity-40",
                   TONE[item.tone ?? "default"],
@@ -126,8 +137,10 @@ export function Menu({
                     aria-hidden
                   />
                 )}
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{item.label}</span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  {item.content ?? (
+                    <span className="truncate">{item.label}</span>
+                  )}
 
                   {/*
                     The reason a control is disabled cannot live only in
@@ -145,6 +158,14 @@ export function Menu({
                     </span>
                   )}
                 </span>
+
+                {item.selected === true && (
+                  <Check
+                    className="size-icon-md shrink-0 text-brand-600"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                )}
               </button>
             </MenuItem>
           </div>

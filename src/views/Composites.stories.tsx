@@ -12,7 +12,7 @@ import { useStore } from "@/controllers/store";
 import { createSeedState, SEED_IDS, SEED_NOW } from "@/model/seed";
 
 import { KanbanColumn } from "./board/KanbanColumn";
-import { TaskCard } from "./board/TaskCard";
+import { TaskCard, type TaskCardStatusOption } from "./board/TaskCard";
 import { TaskDrawer } from "./drawer/TaskDrawer";
 import { SidebarTree } from "./sidebar/SidebarTree";
 
@@ -42,14 +42,14 @@ function cardFor(taskId: string): TaskCardViewModel {
   return buildTaskCard(seed, task, SEED_NOW);
 }
 
-const STATUSES = [
-  { id: "st-bk-todo", name: "To do" },
-  { id: "st-bk-active", name: "In progress" },
-  { id: "st-bk-done", name: "Done" },
+const STATUSES: TaskCardStatusOption[] = [
+  { id: "st-bk-todo", name: "To do", colorToken: "status-todo" },
+  { id: "st-bk-active", name: "In progress", colorToken: "status-active" },
+  { id: "st-bk-done", name: "Done", colorToken: "status-done" },
 ];
 
 const MEMBERS = [
-  { id: SEED_IDS.users.alice, name: "Alice Nwosu" },
+  { id: SEED_IDS.users.alice, name: "Alice Nguyen" },
   { id: SEED_IDS.users.bob, name: "Bob Mensah" },
   { id: SEED_IDS.users.carol, name: "Carol Diaz" },
 ];

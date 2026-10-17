@@ -5,6 +5,7 @@ import {
   CircleDot,
   Flag,
   FolderInput,
+  List,
   Lock,
   Trash2,
   Users,
@@ -12,12 +13,14 @@ import {
 } from "lucide-react";
 import { useCallback } from "react";
 
+import { Avatar } from "@/components/ui/Avatar";
 import { AvatarGroup } from "@/components/ui/AvatarGroup";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { Menu, type MenuItemSpec } from "@/components/ui/Menu";
+import { PriorityBadge } from "@/components/ui/PriorityBadge";
 import { ScrollShadow } from "@/components/ui/ScrollShadow";
 import { Select } from "@/components/ui/Select";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -185,6 +188,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
   const moveItems: MenuItemSpec[] = view.moveTargets.map((list) => ({
     id: list.id,
     label: list.name,
+    icon: List,
     disabled: !view.canEdit,
     onSelect: () => {
       handleMoveToList(list.id);
@@ -277,25 +281,23 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
                 label="Status"
                 value={view.statusId}
                 disabled={!view.canEdit}
+                /*
+                 * The pill travels with the option, so the closed trigger and
+                 * the open list render the same thing. The previous version
+                 * supplied only `renderValue`, which showed a pill on the
+                 * button and plain text in the dropdown.
+                 */
                 options={view.statuses.map((status) => ({
                   value: status.id,
                   label: status.name,
-                }))}
-                renderValue={(option) => {
-                  const status = view.statuses.find(
-                    (candidate) => candidate.id === option.value,
-                  );
-
-                  return status ? (
+                  content: (
                     <StatusPill
                       name={status.name}
                       colorToken={status.colorToken}
                       variant="dot-label"
                     />
-                  ) : (
-                    option.label
-                  );
-                }}
+                  ),
+                }))}
                 onChange={(statusId) => {
                   save("status", { statusId });
                 }}
@@ -311,9 +313,16 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
                 label="Priority"
                 value={view.priority}
                 disabled={!view.canEdit}
+                /*
+                 * `PRIORITY_CONFIG` has carried an icon and a colour token all
+                 * along; this picker was rendering neither, so the one control
+                 * whose whole job is choosing a priority was the only place
+                 * that showed it as bare text.
+                 */
                 options={PRIORITIES.map((priority) => ({
                   value: priority,
                   label: PRIORITY_CONFIG[priority].label,
+                  content: <PriorityBadge priority={priority} showLabel />,
                 }))}
                 onChange={(priority) => {
                   save("priority", { priority });
@@ -331,9 +340,26 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
                 label="Assignees"
                 items={view.members.map((member) => ({
                   id: member.id,
-                  label: view.assigneeIds.includes(member.id)
-                    ? `✓ ${member.name}`
-                    : member.name,
+                  label: member.name,
+                  /*
+                   * Was `✓ ${member.name}`, which put the selection state
+                   * inside the label — so a screen reader announced a tick
+                   * character and the menu showed no avatar at all. `selected`
+                   * now renders the check and appends ", selected" to the
+                   * accessible name instead.
+                   */
+                  selected: view.assigneeIds.includes(member.id),
+                  content: (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Avatar
+                        name={member.name}
+                        avatarToken={member.avatarToken}
+                        size="xs"
+                        showTooltip={false}
+                      />
+                      <span className="truncate">{member.name}</span>
+                    </span>
+                  ),
                   disabled: !view.canEdit,
                   onSelect: () => {
                     const next = view.assigneeIds.includes(member.id)
@@ -347,7 +373,12 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
                   <button
                     type="button"
                     disabled={!view.canEdit}
-                    aria-label="Change assignees"
+                    /*
+                     * No `aria-label` here: `Menu` renders its trigger with
+                     * `as={Fragment}` and merges its own `label` onto this
+                     * element, so anything set here is silently overridden.
+                     * The name comes from the `Menu`'s `label` prop.
+                     */
                     className={cn(
                       "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left",
                       "coarse-pointer:h-touch",

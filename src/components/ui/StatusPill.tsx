@@ -21,6 +21,14 @@ export interface StatusPillProps {
  * free of domain types and the component can be exercised in Storybook from
  * plain props (Requirement 11.4).
  */
+/*
+ * `data-status-dot` marks the colour swatch in every variant.
+ *
+ * It exists so a test can tell "the pill component rendered" from "the status
+ * name rendered as text" — both contain the same words, which is precisely how
+ * the drawer's dropdown managed to show plain labels while looking correct on
+ * its trigger. A class-based assertion would break on any restyle.
+ */
 export function StatusPill({
   name,
   colorToken,
@@ -37,6 +45,7 @@ export function StatusPill({
         title={name}
       >
         <span
+          data-status-dot
           className={cn("size-2 shrink-0 rounded-full", classes.dot)}
           aria-hidden
         />
@@ -51,6 +60,7 @@ export function StatusPill({
     return (
       <span className={cn("inline-flex items-center gap-1.5", className)}>
         <span
+          data-status-dot
           className={cn("size-2 shrink-0 rounded-full", classes.dot)}
           aria-hidden
         />
@@ -77,6 +87,7 @@ export function StatusPill({
       )}
     >
       <span
+        data-status-dot
         className={cn("size-1.5 shrink-0 rounded-full", classes.dot)}
         aria-hidden
       />
