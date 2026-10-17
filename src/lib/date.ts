@@ -96,3 +96,82 @@ export function dueDateAtDays(now: string, days: number): string {
     Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 9),
   ).toISOString();
 }
+
+/*
+ * Calendar days versus instants.
+ *
+ * A due date is stored as an instant — 09:00 UTC — but what a user picks is a
+ * *calendar day*, and the two are not interchangeable. Calendar libraries,
+ * `@rehookify/datepicker` included, represent a day as local midnight, so
+ * reading one of their dates with `getUTC*` yields the previous day for anyone
+ * east of Greenwich.
+ *
+ * That bug was live for exactly one commit: a cell labelled "November 4"
+ * carried the key `2026-11-03`. These four functions are the entire conversion
+ * surface, and `date.test.ts` pins them under a non-UTC timezone.
+ *
+ * The rule: stored instants are read in UTC, calendar-library dates are read
+ * locally, and nothing crosses between them without passing through here.
+ */
+
+/** `YYYY-MM-DD` for the day a *local-midnight* `Date` represents. */
+export function toDayKey(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * A local-midnight `Date` for a `YYYY-MM-DD` — the shape a calendar library
+ * expects. Null for anything that is not a real date.
+ *
+ * Strict by design: `new Date("2026-02-31")` rolls silently into March, and a
+ * due date landing a month away from what was typed is worse than a rejected
+ * edit. The parsed parts are checked back against the input to catch it.
+ */
+export function fromDayKey(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (year === undefined || month === undefined || day === undefined)
+    return null;
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+/**
+ * The stored instant for a calendar day, normalised to 09:00 UTC.
+ *
+ * Every path that sets a due date goes through here — the card's quick menu,
+ * the typed field and the calendar — so two of them cannot write different
+ * times of day for "the 14th" and then sort inconsistently
+ * (Requirement 5.4).
+ */
+export function toDueDateIso(date: Date): string {
+  return new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 9),
+  ).toISOString();
+}
+
+/**
+ * The calendar day of a stored due date.
+ *
+ * Read in UTC, matching `startOfDay` above — which is what decides overdue and
+ * due-today — so the date shown in the field is the date the board colours.
+ */
+export function dueDateToDayKey(iso: string): string {
+  return iso.slice(0, 10);
+}

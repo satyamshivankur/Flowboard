@@ -18,6 +18,7 @@ import {
 
 import { Avatar } from "./Avatar";
 import { Checkbox } from "./Checkbox";
+import { DatePicker } from "./DatePicker";
 import { IconButton } from "./IconButton";
 import { Input } from "./Input";
 import { Menu } from "./Menu";
@@ -415,4 +416,81 @@ export const Separators: Story = {
       </div>
     </div>
   ),
+};
+
+/*
+ * A fixed reference "today", so the ring and the opening month are the same
+ * every time the workbench is opened.
+ */
+const STORY_NOW = "2026-10-16T09:00:00.000Z";
+
+function DatePickerDemo() {
+  const [due, setDue] = useState<string | null>("2026-10-21T09:00:00.000Z");
+  const [empty, setEmpty] = useState<string | null>(null);
+
+  return (
+    <div className="flex max-w-xs flex-col gap-5">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-medium text-ink-600">With a value</p>
+        <DatePicker
+          label="Due date"
+          value={due}
+          now={STORY_NOW}
+          onChange={setDue}
+        />
+        <p className="text-xs text-ink-400">Stored as {due ?? "null"}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-medium text-ink-600">Empty</p>
+        <DatePicker
+          label="Start date"
+          value={empty}
+          now={STORY_NOW}
+          onChange={setEmpty}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-medium text-ink-600">
+          Bounded — this month onward only
+        </p>
+        <DatePicker
+          label="Bounded date"
+          value={null}
+          now={STORY_NOW}
+          minDate={new Date(2026, 9, 16)}
+          maxDate={new Date(2026, 11, 31)}
+          onChange={() => undefined}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-medium text-ink-600">Disabled</p>
+        <DatePicker
+          label="Read-only date"
+          value="2026-10-21T09:00:00.000Z"
+          now={STORY_NOW}
+          disabled
+          onChange={() => undefined}
+        />
+      </div>
+
+      <p className="text-xs text-ink-400">
+        Calendar-only — there is nothing to type into. Opening the panel lands
+        focus on a day; arrows move one day, Home and End jump to the ends of
+        the week, PageUp and PageDown change month, and holding Shift turns
+        those into year jumps.
+      </p>
+    </div>
+  );
+}
+
+export const DatePickers: Story = { render: () => <DatePickerDemo /> };
+
+/** The same field on a phone, where the calendar anchors below the input. */
+export const DatePickerPhone: Story = {
+  name: "Date picker · phone",
+  parameters: { viewport: { defaultViewport: "phone" } },
+  render: () => <DatePickerDemo />,
 };

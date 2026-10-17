@@ -16,9 +16,9 @@ import { useCallback } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { AvatarGroup } from "@/components/ui/AvatarGroup";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { Drawer } from "@/components/ui/Drawer";
 import { IconButton } from "@/components/ui/IconButton";
-import { Input } from "@/components/ui/Input";
 import { Menu, type MenuItemSpec } from "@/components/ui/Menu";
 import { PriorityBadge } from "@/components/ui/PriorityBadge";
 import { ScrollShadow } from "@/components/ui/ScrollShadow";
@@ -408,26 +408,20 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
               pending={isPending("dueDate")}
             >
               {/*
-                A native date input rather than a custom calendar: it brings the
-                platform picker, keyboard entry and localisation for free, and a
-                hand-rolled calendar is a lot of surface for no gain here.
+                A styled calendar rather than `<input type="date">`. The native
+                input was the one control in the app that ignored the token
+                system — it is barely styleable and renders differently in
+                every browser — and it cannot show which day is today.
+                Selection is calendar-only, so there is no half-written or
+                ambiguous date to validate.
               */}
-              <Input
+              <DatePicker
+                key={`due-${view.taskId ?? "none"}`}
                 label="Due date"
-                labelHidden
-                type="date"
-                inputSize="sm"
+                value={view.dueDate}
                 disabled={!view.canEdit}
-                value={view.dueDate === null ? "" : view.dueDate.slice(0, 10)}
-                onChange={(event) => {
-                  const next = event.target.value;
-
-                  save("dueDate", {
-                    dueDate:
-                      next.length === 0
-                        ? null
-                        : new Date(`${next}T09:00:00.000Z`).toISOString(),
-                  });
+                onChange={(dueDate) => {
+                  save("dueDate", { dueDate });
                 }}
               />
             </PropertyRow>
