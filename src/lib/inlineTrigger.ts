@@ -3,7 +3,7 @@ import { cn } from "./cn";
 export type InlinePickerSize = "sm" | "md";
 
 const PAD: Record<InlinePickerSize, string> = {
-  sm: "-mx-1 px-1 py-0.5",
+  sm: "px-1 py-0.5",
   md: "-mx-1.5 px-1.5 py-1",
 };
 

@@ -5,10 +5,14 @@ import {
   PointerSensor,
   TouchSensor,
   closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
   type Announcements,
+  MeasuringStrategy,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
@@ -28,49 +32,35 @@ import { ReadOnlyNotice } from "../states/ReadOnlyNotice";
 import type { ViewProps } from "../viewComponents";
 
 import { BoardPager } from "./BoardPager";
+import {
+  columnsFromPlan,
+  crossColumnMove,
+  finalDrop,
+  isNoOpDrop,
+  planFrom,
+  type DragPlan,
+} from "./dragPlan";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
 
-/** Resolves a drop into a destination status and index within it. */
-function resolveDrop(
-  columns: ReturnType<typeof useBoard>["columns"],
-  activeId: string,
-  overId: string,
-): { statusId: string; index: number } | null {
-  // Dropped on a column's empty space: append.
-  const column = columns.find((candidate) => candidate.statusId === overId);
+/**
+ * Pointer first, geometry as the fallback.
+ *
+ * `closestCorners` alone measures from the *dragged card's* corners, so in a
+ * non-empty column it almost always resolved to whichever card sat nearest the
+ * column's top-left — which is why every cross-column drop landed at the top
+ * regardless of where the pointer was.
+ *
+ * `pointerWithin` answers the question actually being asked: what is under the
+ * cursor. It returns nothing during a keyboard drag, where there is no pointer,
+ * so `closestCorners` still backs it up.
+ */
+const boardCollisionDetection: CollisionDetection = (args) => {
+  const underPointer = pointerWithin(args);
 
-  if (column) {
-    return { statusId: column.statusId, index: column.tasks.length };
-  }
+  return underPointer.length > 0 ? underPointer : closestCorners(args);
+};
 
-  // Dropped on a card: take that card's column and position.
-  const target = columns.find((candidate) =>
-    candidate.tasks.some((task) => task.id === overId),
-  );
-
-  if (!target) return null;
-
-  const index = target.tasks.findIndex((task) => task.id === overId);
-  const from = columns.find((candidate) =>
-    candidate.tasks.some((task) => task.id === activeId),
-  );
-
-  /*
-   * Moving down within the same column shifts every later card up by one once
-   * the dragged card leaves, so the raw index would land one slot short.
-   */
-  if (from?.statusId === target.statusId) {
-    const currentIndex = from.tasks.findIndex((task) => task.id === activeId);
-
-    return {
-      statusId: target.statusId,
-      index: currentIndex < index ? index + 1 : index,
-    };
-  }
-
-  return { statusId: target.statusId, index };
-}
 
 /**
  * The kanban board.
@@ -99,6 +89,17 @@ export function KanbanBoard({ listId }: ViewProps) {
   const { run, isPending } = usePendingAction();
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  /*
+   * The board's task order while a drag is live.
+   *
+   * Held here rather than derived, because this *is* what gets rendered: the
+   * dragged card has to sit in the destination column's own `SortableContext`
+   * for the sorting strategy to open a gap for it. `onDragOver` moves it
+   * between columns and nothing else, which is what keeps this from looping —
+   * see the note in `dragPlan.ts`.
+   */
+  const [plan, setPlan] = useState<DragPlan | null>(null);
 
   /*
    * Which column the phone layout is showing. Derived from scroll position
@@ -168,6 +169,34 @@ export function KanbanBoard({ listId }: ViewProps) {
     }),
   );
 
+  /*
+   * What the board shows: the plan while dragging, the store otherwise.
+   * Untouched columns keep their object identity, so a drag does not remount
+   * every card on the board.
+   */
+  const columns = useMemo(
+    () => columnsFromPlan(board.columns, plan),
+    [board.columns, plan],
+  );
+
+  const draggingColumnId = useMemo(() => {
+    if (plan === null || draggingId === null) return undefined;
+
+    return Object.keys(plan).find((statusId) =>
+      plan[statusId]?.includes(draggingId),
+    );
+  }, [plan, draggingId]);
+
+  /*
+   * Derived from the *store's* columns, not the previewed ones.
+   *
+   * This is the single largest cost at a crossing. A status's id, name and
+   * colour cannot change during a drag, but reading them off the previewed
+   * columns produced a fresh array every time the plan changed — which gave
+   * every `TaskCard` a new `statuses` prop, defeated `memo` on all of them,
+   * and rebuilt every card's twenty-item menu at the exact moment the drag
+   * needed the main thread.
+   */
   const statusOptions = useMemo(
     () =>
       board.columns.map((column) => ({
@@ -178,14 +207,20 @@ export function KanbanBoard({ listId }: ViewProps) {
     [board.columns],
   );
 
+  /* Column names are fixed during a drag, so the pager reads the store too. */
+  const columnNames = useMemo(
+    () => board.columns.map((column) => column.name),
+    [board.columns],
+  );
+
   const dragging = useMemo(
     () =>
       draggingId === null
         ? undefined
-        : board.columns
+        : columns
             .flatMap((column) => column.tasks)
             .find((task) => task.id === draggingId),
-    [draggingId, board.columns],
+    [draggingId, columns],
   );
 
   /** Spoken updates, so a drag is followable without sight (Req 4.11, 17.5). */
@@ -201,23 +236,75 @@ export function KanbanBoard({ listId }: ViewProps) {
     [],
   );
 
+  /**
+   * Tracks the destination as the pointer moves.
+   *
+   * `isBelowMidpoint` is the half of this that cannot be derived from ids: past
+   * the midpoint of the hovered card the insertion belongs after it, and
+   * without that the bottom slot of a column is unreachable by pointer.
+   */
+  /**
+   * Moves the dragged card between columns as the pointer crosses them.
+   *
+   * Only between. Reordering inside a column is left to
+   * `verticalListSortingStrategy`, which does it with transforms and no React
+   * state — so once the card is in its destination this returns the same plan
+   * object, React bails out, and nothing re-measures. That early return is the
+   * whole defence against the update loop that crashed this before.
+   */
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { active, over } = event;
+
+    if (!over) return;
+
+    const activeRect = active.rect.current.translated;
+    const overRect = over.rect;
+    const isBelowMidpoint =
+      activeRect !== null &&
+      activeRect.top + activeRect.height / 2 >
+        overRect.top + overRect.height / 2;
+
+    setPlan((current) =>
+      current === null
+        ? current
+        : crossColumnMove(
+            current,
+            String(active.id),
+            String(over.id),
+            isBelowMidpoint,
+          ),
+    );
+  }, []);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      setDraggingId(null);
-
       const { active, over } = event;
+      const committed = plan;
+
+      setDraggingId(null);
+      setPlan(null);
 
       /*
        * No target means Escape, or a drop outside any column. Either way the
        * card returns to where it was and nothing is written
        * (Requirement 4.7).
        */
-      if (!over) return;
+      if (!over || committed === null) return;
 
       const activeId = String(active.id);
-      const drop = resolveDrop(board.columns, activeId, String(over.id));
 
-      if (!drop) return;
+      /*
+       * Resolved against the plan — the order actually on screen — so the
+       * committed index is the one the user watched the card settle into.
+       * Recomputing from the store's columns is what previously disagreed with
+       * the board in front of them.
+       */
+      const target = finalDrop(committed, activeId, String(over.id));
+
+      // Dropped back where it started: nothing to write (Requirement 4.7).
+      if (isNoOpDrop(board.columns, activeId, target) || target === null) {
+        return;
+      }
 
       /*
        * Routed through `run` so a rejected move surfaces as a retryable toast.
@@ -226,9 +313,102 @@ export function KanbanBoard({ listId }: ViewProps) {
        */
       void run(
         activeId,
-        () => board.onMoveTask(activeId, drop.statusId, drop.index),
+        () => board.onMoveTask(activeId, target.statusId, target.index),
         { retryable: true },
       );
+    },
+    [board, run, plan],
+  );
+
+  /*
+   * Every card handler is hoisted into a `useCallback`.
+   *
+   * Not tidiness: these were inline arrows, so each render of the board handed
+   * every card eleven brand-new functions. That defeats `memo` on `TaskCard`
+   * entirely, and the board re-renders on every pointer event of a drag — so
+   * all of the cards, with all of their pickers and menus, were rebuilding
+   * continuously. That is the stutter.
+   */
+  const handleRename = useCallback(
+    (taskId: string, title: string) => {
+      void run(taskId, () => board.onQuickUpdate(taskId, { title }), {
+        retryable: true,
+      });
+    },
+    [board, run],
+  );
+
+  const handleToggleComplete = useCallback(
+    (taskId: string) => {
+      void run(taskId, () => board.onToggleComplete(taskId), {
+        retryable: true,
+      });
+    },
+    [board, run],
+  );
+
+  const handleSetPriority = useCallback(
+    (taskId: string, priority: string) => {
+      void run(
+        taskId,
+        () => board.onQuickUpdate(taskId, { priority: priority as Priority }),
+        { retryable: true },
+      );
+    },
+    [board, run],
+  );
+
+  const handleSetStatus = useCallback(
+    (taskId: string, statusId: string) => {
+      void run(taskId, () => board.onQuickUpdate(taskId, { statusId }), {
+        retryable: true,
+      });
+    },
+    [board, run],
+  );
+
+  const handleSetDueDate = useCallback(
+    (taskId: string, dueDate: string | null) => {
+      void run(taskId, () => board.onQuickUpdate(taskId, { dueDate }), {
+        retryable: true,
+      });
+    },
+    [board, run],
+  );
+
+  /** Keyboard and menu reordering, which needs the column it happens in. */
+  const handleReorder = useCallback(
+    (taskId: string, statusId: string, toIndex: number) => {
+      void run(taskId, () => board.onMoveTask(taskId, statusId, toIndex), {
+        retryable: true,
+      });
+    },
+    [board, run],
+  );
+
+  const handleDuplicate = useCallback(
+    (taskId: string) => {
+      void run(taskId, () => board.onDuplicateTask(taskId), {
+        successTitle: "Task duplicated",
+      });
+    },
+    [board, run],
+  );
+
+  const handleMoveToList = useCallback(
+    (taskId: string, targetListId: string) => {
+      void run(taskId, () => board.onMoveToList(taskId, targetListId), {
+        successTitle: "Task moved",
+      });
+    },
+    [board, run],
+  );
+
+  const handleCreate = useCallback(
+    (statusId: string, title: string) => {
+      void run(statusId, () => board.onCreateTask(statusId, title), {
+        retryable: true,
+      });
     },
     [board, run],
   );
@@ -308,14 +488,25 @@ export function KanbanBoard({ listId }: ViewProps) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={boardCollisionDetection}
       accessibility={{ announcements }}
+      /*
+       * Re-measure while dragging. The card moving between columns changes
+       * their heights, and with the default measuring those rects are taken
+       * once at pickup — so every collision after the first crossing is
+       * computed against a stale layout, which is what made the drag feel like
+       * it was fighting the cursor.
+       */
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={(event: DragStartEvent) => {
         setDraggingId(String(event.active.id));
+        setPlan(planFrom(board.columns));
       }}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={() => {
         setDraggingId(null);
+        setPlan(null);
       }}
     >
       <div className="flex h-full min-h-0 flex-col">
@@ -335,13 +526,18 @@ export function KanbanBoard({ listId }: ViewProps) {
             "snap-x snap-mandatory md:snap-none md:gap-4 md:p-6",
           )}
         >
-          {board.columns.map((column) => (
+          {columns.map((column) => (
             <KanbanColumn
               key={column.statusId}
+              isDragOver={draggingColumnId === column.statusId}
               statusId={column.statusId}
               name={column.name}
               colorToken={column.colorToken}
-              count={column.count}
+              /*
+               * The plan's length, so the header agrees with the cards under
+               * it while a card is mid-flight between columns.
+               */
+              count={column.tasks.length}
               tasks={column.tasks}
               now={now}
               canEdit={board.canEdit}
@@ -351,76 +547,27 @@ export function KanbanBoard({ listId }: ViewProps) {
               members={board.members}
               isPending={isPending}
               onOpen={openTask}
-              onRename={(taskId, title) => {
-                void run(taskId, () => board.onQuickUpdate(taskId, { title }), {
-                  retryable: true,
-                });
-              }}
-              onToggleComplete={(taskId) => {
-                void run(taskId, () => board.onToggleComplete(taskId), {
-                  retryable: true,
-                });
-              }}
-              onSetPriority={(taskId, priority) => {
-                void run(
-                  taskId,
-                  () =>
-                    board.onQuickUpdate(taskId, {
-                      priority: priority as Priority,
-                    }),
-                  { retryable: true },
-                );
-              }}
-              onSetStatus={(taskId, statusId) => {
-                void run(
-                  taskId,
-                  () => board.onQuickUpdate(taskId, { statusId }),
-                  { retryable: true },
-                );
-              }}
+              onRename={handleRename}
+              onToggleComplete={handleToggleComplete}
+              onSetPriority={handleSetPriority}
+              onSetStatus={handleSetStatus}
               onToggleAssignee={handleToggleAssignee}
-              onSetDueDate={(taskId, dueDate) => {
-                void run(
-                  taskId,
-                  () => board.onQuickUpdate(taskId, { dueDate }),
-                  { retryable: true },
-                );
-              }}
-              onReorder={(taskId, toIndex) => {
-                void run(
-                  taskId,
-                  () => board.onMoveTask(taskId, column.statusId, toIndex),
-                  { retryable: true },
-                );
-              }}
-              onDuplicate={(taskId) => {
-                void run(taskId, () => board.onDuplicateTask(taskId), {
-                  successTitle: "Task duplicated",
-                });
-              }}
-              onMoveToList={(taskId, targetListId) => {
-                void run(
-                  taskId,
-                  () => board.onMoveToList(taskId, targetListId),
-                  { successTitle: "Task moved" },
-                );
-              }}
+              onSetDueDate={handleSetDueDate}
+              onReorderInColumn={handleReorder}
+              onDuplicate={handleDuplicate}
+              onMoveToList={handleMoveToList}
               onDelete={handleDelete}
               /*
                * Creation has no task id yet, so it keys on the column. The
                * composer input is what shows progress here.
                */
-              onCreate={(statusId, title) => {
-                void run(statusId, () => board.onCreateTask(statusId, title), {
-                  retryable: true,
-                });
-              }}
+              onCreate={handleCreate}
             />
           ))}
         </div>
 
         <BoardPager
-          names={board.columns.map((column) => column.name)}
+          names={columnNames}
           activeIndex={activeColumn}
           onSelect={scrollToColumn}
         />
@@ -431,7 +578,14 @@ export function KanbanBoard({ listId }: ViewProps) {
         the source slot keeps a subdued placeholder of identical size — so the
         column height never jumps mid-drag (Requirement 15.6, 4.6).
       */}
-      <DragOverlay dropAnimation={null}>
+      {/*
+        The default drop animation, not `null`. Suppressing it made every drop
+        land with a snap: the overlay vanished and the card reappeared
+        elsewhere in the same frame. Letting dnd-kit animate the overlay into
+        its final position is most of what "smooth" means here
+        (Requirement 14.11).
+      */}
+      <DragOverlay>
         {dragging && (
           <TaskCard
             task={dragging}

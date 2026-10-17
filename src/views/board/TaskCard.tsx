@@ -1,4 +1,8 @@
-import { useSortable } from "@dnd-kit/sortable";
+import {
+  defaultAnimateLayoutChanges,
+  useSortable,
+  type AnimateLayoutChanges,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowDown,
@@ -14,7 +18,7 @@ import {
   UserMinus,
   UserPlus,
 } from "lucide-react";
-import { useMemo, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, useMemo, type KeyboardEvent, type MouseEvent } from "react";
 
 import { AssigneePicker } from "@/components/ui/AssigneePicker";
 import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
@@ -42,6 +46,20 @@ import { dueDateAtDays } from "@/lib/date";
  */
 const MAX_MENU_MEMBERS = 5;
 const MAX_MENU_LISTS = 5;
+
+/**
+ * Animate layout changes even for a card that has just arrived in a column.
+ *
+ * dnd-kit's default bails out when `wasDragging` is false, which is the case
+ * for a card newly mounted into another column's `SortableContext` — so the
+ * cards above and below it snapped into their new places instead of sliding.
+ * That snap, at both ends of a cross-column drag, is what read as jerky.
+ *
+ * Forcing the flag is the remedy dnd-kit's own multiple-containers example
+ * uses; everything else about the default predicate is kept.
+ */
+const animateLayoutChanges: AnimateLayoutChanges = (args) =>
+  defaultAnimateLayoutChanges({ ...args, wasDragging: true });
 
 export interface TaskCardStatusOption {
   readonly id: string;
@@ -97,7 +115,19 @@ export interface TaskCardProps {
  * hover are gated behind `can-hover`, so a coarse pointer gets them
  * persistently visible rather than unreachable (Requirement 15.1, 20.10).
  */
-export function TaskCard({
+/**
+ * Memoised, which is a performance fix rather than a habit.
+ *
+ * A drag re-renders the board on every pointer event, and each card carries
+ * four pickers, a twenty-item menu and several tooltips. Rebuilding all of
+ * them continuously is what made dragging feel heavy. This is only effective
+ * because the board now hands down stable callbacks — with inline arrows the
+ * props differed every render and this wrapper would have cost a comparison
+ * and saved nothing.
+ */
+export const TaskCard = memo(TaskCardImpl);
+
+function TaskCardImpl({
   task,
   now,
   canEdit,
@@ -132,9 +162,19 @@ export function TaskCard({
     id: task.id,
     data: { type: "task" },
     disabled: !canEdit || isOverlay,
+    animateLayoutChanges,
   });
 
-  const items = useMemo((): MenuItemSpec[] => {
+  /*
+   * Split in two on purpose.
+   *
+   * Only the two reorder entries depend on `index` and `columnLength`, and a
+   * crossing shifts the index of every card below the insertion point in both
+   * columns. Keeping them in one memo meant each of those cards rebuilt
+   * twenty-odd items — including JSX for every status and member — to change
+   * two disabled flags.
+   */
+  const stableItems = useMemo((): MenuItemSpec[] => {
     const statusItems: MenuItemSpec[] = statuses
       .filter((status) => status.id !== task.statusId)
       .map((status) => ({
@@ -222,40 +262,6 @@ export function TaskCard({
           ]),
     ];
 
-    /*
-     * Reordering has to be reachable without dragging at all. A long-press
-     * drag is awkward on a phone and impossible with some assistive
-     * technology, so the same move exists as two menu items
-     * (Requirement 4.11, 15.10, 20.8).
-     *
-     * `toIndex` is an index into the column with this task already removed,
-     * which is why moving down targets `index + 1` rather than `index + 2`.
-     */
-    const reorderItems: MenuItemSpec[] = [
-      {
-        id: "move-up",
-        label: "Move up",
-        icon: ArrowUp,
-        disabled: !canEdit || index === 0,
-        // Two different refusals: no permission, or nowhere further to go.
-        disabledReason: canEdit ? "Already first" : readOnlyReason,
-        separatorBefore: true,
-        onSelect: () => {
-          onReorder(task.id, index - 1);
-        },
-      },
-      {
-        id: "move-down",
-        label: "Move down",
-        icon: ArrowDown,
-        disabled: !canEdit || index >= columnLength - 1,
-        disabledReason: canEdit ? "Already last" : readOnlyReason,
-        onSelect: () => {
-          onReorder(task.id, index + 1);
-        },
-      },
-    ];
-
     const listItems: MenuItemSpec[] = moveTargets
       .slice(0, MAX_MENU_LISTS)
       .map((list, position) => ({
@@ -286,7 +292,6 @@ export function TaskCard({
       ...priorityItems,
       ...assigneeItems,
       ...dueDateItems,
-      ...reorderItems,
       ...listItems,
       {
         id: "duplicate",
@@ -317,8 +322,6 @@ export function TaskCard({
     statuses,
     moveTargets,
     members,
-    index,
-    columnLength,
     canEdit,
     readOnlyReason,
     onOpen,
@@ -326,10 +329,63 @@ export function TaskCard({
     onSetPriority,
     onToggleAssignee,
     onSetDueDate,
-    onReorder,
     onMoveToList,
     onDuplicate,
     onDelete,
+  ]);
+
+  /*
+   * Reordering has to be reachable without dragging at all. A long-press drag
+   * is awkward on a phone and impossible with some assistive technology, so
+   * the same move exists as two menu items (Requirement 4.11, 15.10, 20.8).
+   *
+   * `toIndex` is an index into the column with this task already removed,
+   * which is why moving down targets `index + 1` rather than `index + 2`.
+   */
+  const items = useMemo((): MenuItemSpec[] => {
+    const reorderItems: MenuItemSpec[] = [
+      {
+        id: "move-up",
+        label: "Move up",
+        icon: ArrowUp,
+        disabled: !canEdit || index === 0,
+        // Two different refusals: no permission, or nowhere further to go.
+        disabledReason: canEdit ? "Already first" : readOnlyReason,
+        separatorBefore: true,
+        onSelect: () => {
+          onReorder(task.id, index - 1);
+        },
+      },
+      {
+        id: "move-down",
+        label: "Move down",
+        icon: ArrowDown,
+        disabled: !canEdit || index >= columnLength - 1,
+        disabledReason: canEdit ? "Already last" : readOnlyReason,
+        onSelect: () => {
+          onReorder(task.id, index + 1);
+        },
+      },
+    ];
+
+    // Spliced in before the move-to-list entries, where they read as part of
+    // the same "where does this go" group.
+    const listAt = stableItems.findIndex((item) => item.id.startsWith("list-"));
+    const at = listAt === -1 ? stableItems.length - 2 : listAt;
+
+    return [
+      ...stableItems.slice(0, at),
+      ...reorderItems,
+      ...stableItems.slice(at),
+    ];
+  }, [
+    stableItems,
+    task.id,
+    index,
+    columnLength,
+    canEdit,
+    readOnlyReason,
+    onReorder,
   ]);
 
   /*

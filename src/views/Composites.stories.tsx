@@ -244,13 +244,17 @@ export const Columns: Story = {
             statuses={STATUSES}
             moveTargets={MOVE_TARGETS}
             members={MEMBERS}
+            isDragOver={false}
             isPending={nothingPending}
+            onReorderInColumn={noop}
             onCreate={noop}
             {...CARD_HANDLERS}
           />
 
-          {/* Empty, and still a drop target — an empty column that cannot
-              accept a card is a dead end (Requirement 4.9). */}
+          {/* Empty, and shown mid-drag. The highlight is driven by a prop the
+              board resolves, not by the column's own `isOver` — which is false
+              whenever a card wins the collision, so only empty columns used to
+              light up (Requirement 4.6, 4.9). */}
           <KanbanColumn
             statusId="st-bk-active"
             name="In progress"
@@ -263,7 +267,9 @@ export const Columns: Story = {
             statuses={STATUSES}
             moveTargets={MOVE_TARGETS}
             members={MEMBERS}
+            isDragOver
             isPending={nothingPending}
+            onReorderInColumn={noop}
             onCreate={noop}
             {...CARD_HANDLERS}
           />
@@ -282,7 +288,9 @@ export const Columns: Story = {
             statuses={STATUSES}
             moveTargets={[]}
             members={MEMBERS}
+            isDragOver={false}
             isPending={nothingPending}
+            onReorderInColumn={noop}
             onCreate={noop}
             {...CARD_HANDLERS}
           />
