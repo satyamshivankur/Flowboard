@@ -30,15 +30,21 @@ function renderShell() {
   );
 }
 
-/** Task titles in the "To do" column, in the order the board renders them. */
+/**
+ * Task titles in the "To do" column, in the order the board renders them.
+ *
+ * Selected by `aria-roledescription="sortable"`, which dnd-kit puts on the
+ * card root. An earlier version collected every button in the column and
+ * filtered by label prefix — which broke the moment the cards gained inline
+ * editors for the title, priority, date and assignees, because those are
+ * buttons too. Targeting the card itself cannot drift that way.
+ */
 function todoOrder(): string[] {
   const column = screen.getByRole("region", { name: "To do" });
 
-  return within(column)
-    .getAllByRole("button")
-    .map((element) => element.getAttribute("aria-label") ?? "")
-    .filter((label) => !label.startsWith("Add task"))
-    .filter((label) => !label.startsWith("Actions for"));
+  return [
+    ...column.querySelectorAll('[aria-roledescription="sortable"]'),
+  ].map((card) => card.getAttribute("aria-label") ?? "");
 }
 
 /** Arms the one-shot failure through the panel, as the demo does. */

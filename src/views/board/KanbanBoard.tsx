@@ -351,6 +351,11 @@ export function KanbanBoard({ listId }: ViewProps) {
               members={board.members}
               isPending={isPending}
               onOpen={openTask}
+              onRename={(taskId, title) => {
+                void run(taskId, () => board.onQuickUpdate(taskId, { title }), {
+                  retryable: true,
+                });
+              }}
               onToggleComplete={(taskId) => {
                 void run(taskId, () => board.onToggleComplete(taskId), {
                   retryable: true,
@@ -439,6 +444,7 @@ export function KanbanBoard({ listId }: ViewProps) {
             index={0}
             columnLength={1}
             isOverlay
+            onRename={() => undefined}
             onOpen={() => undefined}
             onToggleComplete={() => undefined}
             onSetPriority={() => undefined}

@@ -1,7 +1,14 @@
 import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import { useDatePicker, type DPDay } from "@rehookify/datepicker";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { cn } from "@/lib/cn";
 import {
@@ -27,6 +34,16 @@ export interface DatePickerProps {
   readonly minDate?: Date | undefined;
   readonly maxDate?: Date | undefined;
   readonly placeholder?: string | undefined;
+  /**
+   * Replaces the default field-shaped trigger.
+   *
+   * The inline form on a card or a row needs the `DueDateChip` itself to be
+   * the trigger — including its overdue tone, which a generic button cannot
+   * express.
+   */
+  readonly trigger?: ReactNode | undefined;
+  /** Hides the separate clear button, for the compact inline form. */
+  readonly hideClear?: boolean | undefined;
   readonly className?: string | undefined;
 }
 
@@ -171,6 +188,8 @@ export function DatePicker({
   minDate,
   maxDate,
   placeholder = "No date",
+  trigger,
+  hideClear = false,
   className,
 }: DatePickerProps) {
   const reference = now ?? new Date().toISOString();
@@ -268,35 +287,45 @@ export function DatePicker({
   return (
     <div className={cn("flex items-center gap-1", className)}>
       <Popover className="min-w-0 flex-1">
-        <PopoverButton
-          aria-label={label}
-          disabled={disabled}
-          className={cn(
-            "inline-flex w-full items-center justify-between gap-2 rounded-md py-1",
-            "bg-surface text-ink-900 ring-1 ring-border",
-            "transition-shadow motion-reduce:transition-none",
-            "can-hover:hover:bg-surface-hover",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600",
-            "coarse-pointer:min-h-touch",
-            "disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-400",
-            TRIGGER_SIZE[size],
-          )}
-        >
-          {/*
-            Formatted through the same helper `DueDateChip` uses, so the field
-            and the card never spell the same date two ways
-            (Requirement 13.6).
-          */}
-          <span className={cn("truncate", value === null && "text-ink-400")}>
-            {value === null ? placeholder : formatDueDate(value, reference)}
-          </span>
+        {trigger === undefined ? (
+          <PopoverButton
+            aria-label={label}
+            disabled={disabled}
+            className={cn(
+              "inline-flex w-full items-center justify-between gap-2 rounded-md py-1",
+              "bg-surface text-ink-900 ring-1 ring-border",
+              "transition-shadow motion-reduce:transition-none",
+              "can-hover:hover:bg-surface-hover",
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600",
+              "coarse-pointer:min-h-touch",
+              "disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-400",
+              TRIGGER_SIZE[size],
+            )}
+          >
+            {/*
+              Formatted through the same helper `DueDateChip` uses, so the
+              field and the card never spell the same date two ways
+              (Requirement 13.6).
+            */}
+            <span className={cn("truncate", value === null && "text-ink-400")}>
+              {value === null ? placeholder : formatDueDate(value, reference)}
+            </span>
 
-          <CalendarDays
-            className="size-icon-md shrink-0 text-ink-400"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-        </PopoverButton>
+            <CalendarDays
+              className="size-icon-md shrink-0 text-ink-400"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+          </PopoverButton>
+        ) : (
+          /*
+            `as={Fragment}` merges the popover's props onto the caller's own
+            element. Rendering a wrapper instead would nest their button inside
+            this one — invalid, and it would put the accessible name on the
+            wrapper rather than the control the user focuses.
+          */
+          <PopoverButton as={Fragment}>{trigger}</PopoverButton>
+        )}
 
         {/*
           `anchor` portals the panel and positions it against the viewport.
@@ -496,7 +525,7 @@ export function DatePicker({
         a calendar to remove a date is the kind of small indignity that makes a
         field feel heavy, and it is one tap on touch.
       */}
-      {value !== null && !disabled && (
+      {value !== null && !disabled && !hideClear && (
         <IconButton
           icon={X}
           label={`Clear ${label.toLowerCase()}`}

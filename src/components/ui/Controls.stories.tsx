@@ -16,16 +16,24 @@ import {
   type Priority,
 } from "@/config/priorities";
 
+import { AssigneePicker } from "./AssigneePicker";
 import { Avatar } from "./Avatar";
+import type { AvatarGroupMember } from "./AvatarGroup";
 import { Checkbox } from "./Checkbox";
 import { DatePicker } from "./DatePicker";
+import { DueDatePicker } from "./DueDatePicker";
 import { IconButton } from "./IconButton";
 import { Input } from "./Input";
 import { Menu } from "./Menu";
 import { PriorityBadge } from "./PriorityBadge";
+import { PriorityPicker } from "./PriorityPicker";
 import { SegmentedControl } from "./SegmentedControl";
 import { Select, type SelectOption } from "./Select";
 import { Separator } from "./Separator";
+import {
+  StatusPicker,
+  type StatusPickerOption,
+} from "./StatusPicker";
 import { StatusPill } from "./StatusPill";
 import { Textarea } from "./Textarea";
 import { Tooltip } from "./Tooltip";
@@ -422,6 +430,18 @@ export const Separators: Story = {
  * A fixed reference "today", so the ring and the opening month are the same
  * every time the workbench is opened.
  */
+const PICKER_STATUSES: StatusPickerOption[] = [
+  { id: "st-todo", name: "To do", colorToken: "status-todo" },
+  { id: "st-active", name: "In progress", colorToken: "status-active" },
+  { id: "st-done", name: "Done", colorToken: "status-done" },
+];
+
+const SEED_MEMBERS: AvatarGroupMember[] = [
+  { id: "u-alice", name: "Alice Nguyen", avatarToken: "avatar-indigo" },
+  { id: "u-bob", name: "Bob Mensah", avatarToken: "avatar-teal" },
+  { id: "u-carol", name: "Carol Diaz", avatarToken: "avatar-amber" },
+];
+
 const STORY_NOW = "2026-10-16T09:00:00.000Z";
 
 function DatePickerDemo() {
@@ -494,3 +514,84 @@ export const DatePickerPhone: Story = {
   parameters: { viewport: { defaultViewport: "phone" } },
   render: () => <DatePickerDemo />,
 };
+
+/*
+ * The inline pickers: a badge, pill, chip or avatar stack that edits where it
+ * is displayed. No chevron — the affordance is the hover and focus highlight,
+ * which is why the read-only column below looks identical minus the
+ * interactivity.
+ */
+function InlinePickerDemo() {
+  const [priority, setPriority] = useState<Priority>("high");
+  const [status, setStatus] = useState("st-active");
+  const [due, setDue] = useState<string | null>("2026-10-21T09:00:00.000Z");
+  const [undated, setUndated] = useState<string | null>(null);
+  // `noUncheckedIndexedAccess` is on, so the literal index is narrowed.
+  const [assigned, setAssigned] = useState<string[]>(["u-alice"]);
+  const [none, setNone] = useState<string[]>([]);
+
+  const toggle =
+    (set: (next: string[]) => void, current: string[]) => (userId: string) => {
+      set(
+        current.includes(userId)
+          ? current.filter((id) => id !== userId)
+          : [...current, userId],
+      );
+    };
+
+  return (
+    <div className="grid gap-x-8 gap-y-4 sm:grid-cols-[auto_1fr_1fr]">
+      <p className="text-xs font-medium text-ink-400">Field</p>
+      <p className="text-xs font-medium text-ink-400">Editable</p>
+      <p className="text-xs font-medium text-ink-400">Read-only</p>
+
+      <p className="text-xs text-ink-600">Priority</p>
+      <PriorityPicker value={priority} showLabel onChange={setPriority} />
+      <PriorityPicker value={priority} showLabel disabled onChange={setPriority} />
+
+      <p className="text-xs text-ink-600">Status</p>
+      <StatusPicker value={status} options={PICKER_STATUSES} onChange={setStatus} />
+      <StatusPicker
+        value={status}
+        options={PICKER_STATUSES}
+        disabled
+        onChange={setStatus}
+      />
+
+      <p className="text-xs text-ink-600">Due date</p>
+      <DueDatePicker value={due} now={STORY_NOW} onChange={setDue} />
+      <DueDatePicker value={due} now={STORY_NOW} disabled onChange={setDue} />
+
+      <p className="text-xs text-ink-600">Due date, unset</p>
+      <DueDatePicker value={undated} now={STORY_NOW} onChange={setUndated} />
+      <span className="text-xs text-ink-400">
+        nothing — a placeholder that cannot be set is noise
+      </span>
+
+      <p className="text-xs text-ink-600">Assignees</p>
+      <AssigneePicker
+        assignees={SEED_MEMBERS.filter((m) => assigned.includes(m.id))}
+        members={SEED_MEMBERS}
+        align="start"
+        onToggle={toggle(setAssigned, assigned)}
+      />
+      <AssigneePicker
+        assignees={SEED_MEMBERS.filter((m) => assigned.includes(m.id))}
+        members={SEED_MEMBERS}
+        disabled
+        onToggle={() => undefined}
+      />
+
+      <p className="text-xs text-ink-600">Assignees, empty</p>
+      <AssigneePicker
+        assignees={[]}
+        members={SEED_MEMBERS}
+        align="start"
+        onToggle={toggle(setNone, none)}
+      />
+      <span className="text-xs text-ink-400">nothing</span>
+    </div>
+  );
+}
+
+export const InlinePickers: Story = { render: () => <InlinePickerDemo /> };

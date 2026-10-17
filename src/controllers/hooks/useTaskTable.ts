@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 
+import type { AvatarColorToken } from "@/config/avatars";
 import { PAGE_SIZE } from "@/config/limits";
 import type { StatusColorToken } from "@/config/statusCategories";
 import { can } from "@/model/permissions";
@@ -8,6 +9,7 @@ import {
   selectPaginatedRows,
   selectStatusesForList,
   selectTaskRows,
+  selectWorkspaceMembers,
 } from "@/model/selectors";
 import type { SortState } from "@/model/types";
 
@@ -28,8 +30,27 @@ export interface TaskRowViewModel {
   readonly subtasks: readonly TaskRowViewModel[];
 }
 
+/** A status of the selected list, for the inline status picker. */
+export interface TableStatusOption {
+  readonly id: string;
+  readonly name: string;
+  readonly colorToken: StatusColorToken;
+}
+
 export interface TaskTableViewModel {
   readonly rows: readonly TaskRowViewModel[];
+  /**
+   * Every status of this list, so a row's pill can become a picker. The rows
+   * carry only their own status; changing one needs the whole set
+   * (Requirement 5.8).
+   */
+  readonly statuses: readonly TableStatusOption[];
+  /** Workspace members, for assigning from a row (Requirement 15.2). */
+  readonly members: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly avatarToken: AvatarColorToken;
+  }[];
   readonly total: number;
   readonly hasMore: boolean;
   readonly isLoading: boolean;
@@ -77,12 +98,13 @@ export function useTaskTable(
    */
   const state = useStore();
 
-  const { rows, total, hasMore } = useMemo(() => {
+  const { rows, total, hasMore, statuses } = useMemo(() => {
     if (listId === null) {
       return {
         rows: [] as readonly TaskRowViewModel[],
         total: 0,
         hasMore: false,
+        statuses: [] as readonly TableStatusOption[],
       };
     }
 
@@ -113,6 +135,11 @@ export function useTaskTable(
       })),
       total: paged.total,
       hasMore: paged.hasMore,
+      statuses: statuses.map((status) => ({
+        id: status.id,
+        name: status.name,
+        colorToken: status.color,
+      })),
     };
   }, [state, scope, listId, sort, page, now]);
 
@@ -132,6 +159,16 @@ export function useTaskTable(
     [actions, scope, listId],
   );
 
+  const members = useMemo(
+    () =>
+      selectWorkspaceMembers(state, scope).map((user) => ({
+        id: user.id,
+        name: user.name,
+        avatarToken: user.avatarToken,
+      })),
+    [state, scope],
+  );
+
   const canEdit = useMemo(
     () => (listId === null ? false : can(state, scope, "task:update", listId)),
     [state, scope, listId],
@@ -140,6 +177,8 @@ export function useTaskTable(
   return useMemo(
     () => ({
       rows,
+      statuses,
+      members,
       total,
       hasMore,
       isLoading: isHydrating || loadingListId === listId,
@@ -156,6 +195,8 @@ export function useTaskTable(
     }),
     [
       rows,
+      statuses,
+      members,
       total,
       hasMore,
       isHydrating,

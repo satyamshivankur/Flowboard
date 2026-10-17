@@ -41,7 +41,8 @@ import {
 import { cn } from "@/lib/cn";
 import { useLatched } from "@/lib/useLatched";
 
-import { InlineTextField } from "./InlineTextField";
+import { InlineTextField } from "../../components/ui/InlineTextField";
+
 import { PropertyRow } from "./PropertyRow";
 import { SubtaskList } from "./SubtaskList";
 

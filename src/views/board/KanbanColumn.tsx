@@ -6,6 +6,7 @@ import {
 import { Inbox, Plus } from "lucide-react";
 import { useState } from "react";
 
+import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
@@ -28,11 +29,12 @@ export interface KanbanColumnProps {
   readonly readOnlyReason: string | undefined;
   readonly statuses: readonly TaskCardStatusOption[];
   readonly moveTargets: readonly { id: string; name: string }[];
-  readonly members: readonly { id: string; name: string }[];
+  readonly members: readonly AvatarGroupMember[];
   /** Whether a mutation on a given task is in flight (Requirement 14.7). */
   readonly isPending: (taskId: string) => boolean;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
+  readonly onRename: (taskId: string, title: string) => void;
   readonly onSetPriority: (taskId: string, priority: string) => void;
   readonly onSetStatus: (taskId: string, statusId: string) => void;
   readonly onToggleAssignee: (taskId: string, userId: string) => void;
@@ -59,6 +61,7 @@ export function KanbanColumn({
   isPending,
   onOpen,
   onToggleComplete,
+  onRename,
   onSetPriority,
   onSetStatus,
   onToggleAssignee,
@@ -149,6 +152,7 @@ export function KanbanColumn({
               isPending={isPending(task.id)}
               onOpen={onOpen}
               onToggleComplete={onToggleComplete}
+              onRename={onRename}
               onSetPriority={onSetPriority}
               onSetStatus={onSetStatus}
               onToggleAssignee={onToggleAssignee}

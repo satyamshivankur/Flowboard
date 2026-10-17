@@ -1,9 +1,16 @@
-import { AvatarGroup } from "@/components/ui/AvatarGroup";
+import { AssigneePicker } from "@/components/ui/AssigneePicker";
+import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { DueDateChip } from "@/components/ui/DueDateChip";
-import { PriorityBadge } from "@/components/ui/PriorityBadge";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { DueDatePicker } from "@/components/ui/DueDatePicker";
+import { InlineTextField } from "@/components/ui/InlineTextField";
+import { PriorityPicker } from "@/components/ui/PriorityPicker";
+import {
+  StatusPicker,
+  type StatusPickerOption,
+} from "@/components/ui/StatusPicker";
+import { MAX_TITLE_LEN } from "@/config/limits";
+import type { Priority } from "@/config/priorities";
 import type { TaskRowViewModel } from "@/controllers/hooks/useTaskTable";
 import { cn } from "@/lib/cn";
 
@@ -11,10 +18,19 @@ export interface TaskCardListProps {
   readonly rows: readonly TaskRowViewModel[];
   readonly now: string;
   readonly canEdit: boolean;
+  /** Why editing is refused, for the inline pickers (Requirement 8.11). */
+  readonly readOnlyReason?: string | undefined;
   /** Whether a mutation on a given task is in flight (Requirement 14.7). */
   readonly isPending: (taskId: string) => boolean;
+  readonly statuses: readonly StatusPickerOption[];
+  readonly members: readonly AvatarGroupMember[];
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
+  readonly onRename: (taskId: string, title: string) => void;
+  readonly onSetStatus: (taskId: string, statusId: string) => void;
+  readonly onSetPriority: (taskId: string, priority: Priority) => void;
+  readonly onSetDueDate: (taskId: string, dueDate: string | null) => void;
+  readonly onToggleAssignee: (taskId: string, userId: string) => void;
 }
 
 /**
@@ -30,9 +46,17 @@ export function TaskCardList({
   rows,
   now,
   canEdit,
+  readOnlyReason,
   isPending,
+  statuses,
+  members,
   onOpen,
   onToggleComplete,
+  onRename,
+  onSetStatus,
+  onSetPriority,
+  onSetDueDate,
+  onToggleAssignee,
 }: TaskCardListProps) {
   function renderRow(row: TaskRowViewModel, depth: number) {
     return (
@@ -76,26 +100,69 @@ export function TaskCardList({
               />
             </span>
 
-            <span
-              className={cn(
-                "min-w-0 flex-1 text-sm text-ink-900",
-                row.task.isComplete && "text-ink-400 line-through",
-              )}
-            >
-              {row.task.title}
+            <span className="min-w-0 flex-1">
+              <InlineTextField
+                key={`title-${row.task.id}`}
+                label="Title"
+                value={row.task.title}
+                placeholder="Untitled task"
+                disabled={!canEdit}
+                singleLine
+                maxLength={MAX_TITLE_LEN}
+                textClassName={cn(
+                  "text-sm text-ink-900",
+                  row.task.isComplete && "text-ink-400 line-through",
+                )}
+                onCommit={(next) => {
+                  if (next.trim().length > 0) onRename(row.task.id, next.trim());
+                }}
+              />
             </span>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <StatusPill
-              name={row.statusName}
-              colorToken={row.statusToken}
+            {/*
+              The same inline pickers the table uses, so the phone layout is
+              not a read-only version of the same view (Requirement 20.6).
+            */}
+            <StatusPicker
+              value={row.statusId}
+              options={statuses}
               variant="dot-label"
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onChange={(statusId) => {
+                onSetStatus(row.task.id, statusId);
+              }}
             />
-            <PriorityBadge priority={row.task.priority} showLabel />
-            <DueDateChip date={row.task.dueDate} now={now} />
+            <PriorityPicker
+              value={row.task.priority}
+              showLabel
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onChange={(priority) => {
+                onSetPriority(row.task.id, priority);
+              }}
+            />
+            <DueDatePicker
+              value={row.task.dueDate}
+              now={now}
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onChange={(dueDate) => {
+                onSetDueDate(row.task.id, dueDate);
+              }}
+            />
             <span className="ml-auto">
-              <AvatarGroup users={row.task.assignees} max={3} size="xs" />
+              <AssigneePicker
+                assignees={row.task.assignees}
+                members={members}
+                disabled={!canEdit}
+                disabledReason={readOnlyReason}
+                onToggle={(userId) => {
+                  onToggleAssignee(row.task.id, userId);
+                }}
+              />
             </span>
           </div>
         </Card>

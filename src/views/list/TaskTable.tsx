@@ -1,11 +1,18 @@
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
 import { Fragment } from "react";
 
-import { AvatarGroup } from "@/components/ui/AvatarGroup";
+import { AssigneePicker } from "@/components/ui/AssigneePicker";
+import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { DueDateChip } from "@/components/ui/DueDateChip";
-import { PriorityBadge } from "@/components/ui/PriorityBadge";
-import { StatusPill } from "@/components/ui/StatusPill";
+import { DueDatePicker } from "@/components/ui/DueDatePicker";
+import { InlineTextField } from "@/components/ui/InlineTextField";
+import { PriorityPicker } from "@/components/ui/PriorityPicker";
+import {
+  StatusPicker,
+  type StatusPickerOption,
+} from "@/components/ui/StatusPicker";
+import { MAX_TITLE_LEN } from "@/config/limits";
+import type { Priority } from "@/config/priorities";
 import type { TaskRowViewModel } from "@/controllers/hooks/useTaskTable";
 import { cn } from "@/lib/cn";
 import type { SortField, SortState } from "@/model/types";
@@ -15,13 +22,23 @@ export interface TaskTableProps {
   readonly now: string;
   readonly sort: SortState;
   readonly canEdit: boolean;
+  /** Why editing is refused, for the inline pickers (Requirement 8.11). */
+  readonly readOnlyReason?: string | undefined;
   /** Whether a mutation on a given task is in flight (Requirement 14.7). */
   readonly isPending: (taskId: string) => boolean;
+  /** The list's full status set, so a row's pill can become a picker. */
+  readonly statuses: readonly StatusPickerOption[];
+  readonly members: readonly AvatarGroupMember[];
   readonly expandedIds: ReadonlySet<string>;
   readonly onSortChange: (field: SortField) => void;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
   readonly onToggleExpand: (taskId: string) => void;
+  readonly onRename: (taskId: string, title: string) => void;
+  readonly onSetStatus: (taskId: string, statusId: string) => void;
+  readonly onSetPriority: (taskId: string, priority: Priority) => void;
+  readonly onSetDueDate: (taskId: string, dueDate: string | null) => void;
+  readonly onToggleAssignee: (taskId: string, userId: string) => void;
 }
 
 /** Sort direction as `aria-sort` expects it, so the header speaks its state. */
@@ -54,12 +71,20 @@ export function TaskTable({
   now,
   sort,
   canEdit,
+  readOnlyReason,
   isPending,
+  statuses,
+  members,
   expandedIds,
   onSortChange,
   onOpen,
   onToggleComplete,
   onToggleExpand,
+  onRename,
+  onSetStatus,
+  onSetPriority,
+  onSetDueDate,
+  onToggleAssignee,
 }: TaskTableProps) {
   function renderRow(row: TaskRowViewModel, depth: number) {
     const isExpanded = expandedIds.has(row.task.id);
@@ -71,7 +96,23 @@ export function TaskTable({
       <Fragment key={row.task.id}>
         <tr
           aria-busy={isPending(row.task.id) || undefined}
-          onClick={() => {
+          /*
+           * The row opens the drawer, but a click on a control inside it must
+           * not. This previously relied on each child remembering to call
+           * `stopPropagation` — which held only while the cells were inert
+           * text. The moment the status pill, priority badge, date chip and
+           * avatars became buttons, every one of them opened the drawer behind
+           * its own popover. Filtering interactive descendants in one place is
+           * what the cards already do, and it cannot be forgotten when a
+           * control is added (Requirement 15.4).
+           */
+          onClick={(event) => {
+            const interactive = (event.target as HTMLElement).closest(
+              "button, a, input, label, [role='menu'], [role='menuitem'], [role='dialog']",
+            );
+
+            if (interactive) return;
+
             onOpen(row.task.id);
           }}
           className={cn(
@@ -135,32 +176,86 @@ export function TaskTable({
                 <span className="size-icon-sm shrink-0" />
               )}
 
-              <span
-                className={cn(
-                  "truncate text-sm text-ink-900",
-                  row.task.isComplete && "text-ink-400 line-through",
-                )}
-                title={row.task.title}
-              >
-                {row.task.title}
+              {/*
+                Click-to-edit in the cell. The row's own click opens the
+                drawer, and the handler ignores events from `button`
+                descendants — which the field's read mode is — so the two do
+                not fight (Requirement 15.4).
+              */}
+              <span className="min-w-0 flex-1">
+                <InlineTextField
+                  key={`title-${row.task.id}`}
+                  label="Title"
+                  value={row.task.title}
+                  placeholder="Untitled task"
+                  disabled={!canEdit}
+                  singleLine
+                  maxLength={MAX_TITLE_LEN}
+                  textClassName={cn(
+                    "truncate text-sm text-ink-900",
+                    row.task.isComplete && "text-ink-400 line-through",
+                  )}
+                  onCommit={(next) => {
+                    if (next.trim().length > 0)
+                      onRename(row.task.id, next.trim());
+                  }}
+                />
               </span>
             </div>
           </td>
 
+          {/*
+            The pill is the control — no chevron, because a caret on every row
+            would make the table read as a form rather than as data. The
+            affordance is the hover and focus highlight instead.
+          */}
           <td className="px-3">
-            <StatusPill name={row.statusName} colorToken={row.statusToken} />
+            <StatusPicker
+              value={row.statusId}
+              options={statuses}
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onChange={(statusId) => {
+                onSetStatus(row.task.id, statusId);
+              }}
+            />
           </td>
 
           <td className="px-3">
-            <PriorityBadge priority={row.task.priority} showLabel />
+            <PriorityPicker
+              value={row.task.priority}
+              showLabel
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onChange={(priority) => {
+                onSetPriority(row.task.id, priority);
+              }}
+            />
           </td>
 
           <td className="px-3">
-            <DueDateChip date={row.task.dueDate} now={now} />
+            <DueDatePicker
+              value={row.task.dueDate}
+              now={now}
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onChange={(dueDate) => {
+                onSetDueDate(row.task.id, dueDate);
+              }}
+            />
           </td>
 
           <td className="px-3">
-            <AvatarGroup users={row.task.assignees} max={2} size="xs" />
+            <AssigneePicker
+              assignees={row.task.assignees}
+              members={members}
+              max={2}
+              disabled={!canEdit}
+              disabledReason={readOnlyReason}
+              onToggle={(userId) => {
+                onToggleAssignee(row.task.id, userId);
+              }}
+            />
           </td>
         </tr>
 

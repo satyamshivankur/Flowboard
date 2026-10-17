@@ -1,7 +1,9 @@
 import { useState } from "react";
 
-import { Textarea } from "@/components/ui/Textarea";
 import { cn } from "@/lib/cn";
+
+import { Input } from "./Input";
+import { Textarea } from "./Textarea";
 
 export interface InlineTextFieldProps {
   readonly value: string;
@@ -11,6 +13,16 @@ export interface InlineTextFieldProps {
   readonly maxLength?: number | undefined;
   readonly textClassName?: string | undefined;
   readonly error?: string | undefined;
+  /**
+   * Commits on plain Enter and refuses newlines.
+   *
+   * A title is not prose. Rendering it in a `Textarea` meant Enter inserted a
+   * line break into a field that is displayed on one line everywhere else, and
+   * committing needed ⌘/Ctrl+Enter — a shortcut nobody discovers on a kanban
+   * card (Requirement 7.5).
+   */
+  readonly singleLine?: boolean | undefined;
+  /** Shown instead of the value when empty and not being edited. */
   readonly onCommit: (value: string) => void;
 }
 
@@ -34,10 +46,32 @@ export function InlineTextField({
   maxLength,
   textClassName,
   error,
+  singleLine = false,
   onCommit,
 }: InlineTextFieldProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+
+  /*
+   * Read-only renders as plain text rather than a disabled button. A disabled
+   * button still absorbs the click, and on a card or a row the click it would
+   * absorb is the one that opens the drawer (Requirement 7.10, 15.4).
+   */
+  if (!editing && disabled) {
+    return (
+      <span
+        className={cn(
+          "block w-full px-2 py-1",
+          value.length === 0 && "text-ink-400",
+          textClassName,
+        )}
+      >
+        <span className="whitespace-pre-wrap break-words">
+          {value.length === 0 ? placeholder : value}
+        </span>
+      </span>
+    );
+  }
 
   if (!editing) {
     return (
@@ -71,6 +105,51 @@ export function InlineTextField({
           {value.length === 0 ? placeholder : value}
         </span>
       </button>
+    );
+  }
+
+  function commit(next: string) {
+    setEditing(false);
+
+    if (next !== value) onCommit(next);
+  }
+
+  if (singleLine) {
+    return (
+      <Input
+        label={label}
+        labelHidden
+        autoFocus
+        inputSize="sm"
+        value={draft}
+        maxLength={maxLength}
+        error={error}
+        placeholder={placeholder}
+        onChange={(event) => {
+          setDraft(event.target.value);
+        }}
+        onBlur={() => {
+          commit(draft);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit(draft);
+          }
+
+          if (event.key === "Escape") {
+            /*
+             * Stopped here as well as in `Textarea`: without it, Escape
+             * reverts the field *and* closes the drawer or dialog around it,
+             * so a stray keystroke loses the edit and the context together.
+             */
+            event.stopPropagation();
+            event.preventDefault();
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+      />
     );
   }
 

@@ -7,9 +7,13 @@ import { Input } from "@/components/ui/Input";
 import { ScrollShadow } from "@/components/ui/ScrollShadow";
 import { Select } from "@/components/ui/Select";
 import { Skeleton } from "@/components/ui/Skeleton";
+import type { Priority } from "@/config/priorities";
 import { useNavigation } from "@/contexts/NavigationContext";
 import { usePendingAction } from "@/controllers/hooks/usePendingAction";
-import { useTaskTable } from "@/controllers/hooks/useTaskTable";
+import {
+  useTaskTable,
+  type TaskRowViewModel,
+} from "@/controllers/hooks/useTaskTable";
 import type { SortField, SortState } from "@/model/types";
 
 import { ReadOnlyNotice } from "../states/ReadOnlyNotice";
@@ -17,6 +21,27 @@ import type { ViewProps } from "../viewComponents";
 
 import { TaskCardList } from "./TaskCardList";
 import { TaskTable } from "./TaskTable";
+
+/**
+ * Finds a row by task id, including nested subtask rows.
+ *
+ * A flat `find` over `rows` would miss every subtask, so toggling an assignee
+ * on an expanded subtask row would silently do nothing.
+ */
+function findRow(
+  rows: readonly TaskRowViewModel[],
+  taskId: string,
+): TaskRowViewModel | undefined {
+  for (const row of rows) {
+    if (row.task.id === taskId) return row;
+
+    const nested = findRow(row.subtasks, taskId);
+
+    if (nested !== undefined) return nested;
+  }
+
+  return undefined;
+}
 
 /** Sort options for the mobile dropdown — the same set the headers offer. */
 const SORT_OPTIONS: readonly { value: string; label: string }[] = [
@@ -59,6 +84,55 @@ export function TaskListView({ listId }: ViewProps) {
       void run(null, () => table.onCreate(trimmed), { retryable: true });
     }
   }, [newTitle, run, table]);
+
+  /*
+   * The inline editors on both forms of this view write through one set of
+   * handlers, keyed by task id so the row that was edited is the row that
+   * dims. Defined here rather than inside each form, which would have given
+   * the table and the phone cards two subtly different sets
+   * (Requirement 20.6).
+   */
+  const inlineHandlers = useMemo(
+    () => ({
+      onRename: (taskId: string, title: string) => {
+        void run(taskId, () => table.onQuickUpdate(taskId, { title }), {
+          retryable: true,
+        });
+      },
+      onSetStatus: (taskId: string, statusId: string) => {
+        void run(taskId, () => table.onQuickUpdate(taskId, { statusId }), {
+          retryable: true,
+        });
+      },
+      onSetPriority: (taskId: string, priority: Priority) => {
+        void run(taskId, () => table.onQuickUpdate(taskId, { priority }), {
+          retryable: true,
+        });
+      },
+      onSetDueDate: (taskId: string, dueDate: string | null) => {
+        void run(taskId, () => table.onQuickUpdate(taskId, { dueDate }), {
+          retryable: true,
+        });
+      },
+      onToggleAssignee: (taskId: string, userId: string) => {
+        const row = findRow(table.rows, taskId);
+
+        if (row === undefined) return;
+
+        const current = row.task.assignees.map((user) => user.id);
+        const next = current.includes(userId)
+          ? current.filter((id) => id !== userId)
+          : [...current, userId];
+
+        void run(
+          taskId,
+          () => table.onQuickUpdate(taskId, { assigneeIds: next }),
+          { retryable: true },
+        );
+      },
+    }),
+    [run, table],
+  );
 
   /** Clicking the active column flips direction; a new column starts ascending. */
   const handleSortChange = useCallback((field: SortField) => {
@@ -183,13 +257,17 @@ export function TaskListView({ listId }: ViewProps) {
             rows={table.rows}
             now={now}
             canEdit={table.canEdit}
+            readOnlyReason={table.readOnlyReason}
             isPending={isPending}
+            statuses={table.statuses}
+            members={table.members}
             onOpen={openTask}
             onToggleComplete={(taskId) => {
               void run(taskId, () => table.onToggleComplete(taskId), {
                 retryable: true,
               });
             }}
+            {...inlineHandlers}
           />
         </div>
 
@@ -199,7 +277,10 @@ export function TaskListView({ listId }: ViewProps) {
             now={now}
             sort={sort}
             canEdit={table.canEdit}
+            readOnlyReason={table.readOnlyReason}
             isPending={isPending}
+            statuses={table.statuses}
+            members={table.members}
             expandedIds={expandedIds}
             onSortChange={handleSortChange}
             onOpen={openTask}
@@ -209,6 +290,7 @@ export function TaskListView({ listId }: ViewProps) {
               });
             }}
             onToggleExpand={toggleExpand}
+            {...inlineHandlers}
           />
         </div>
 

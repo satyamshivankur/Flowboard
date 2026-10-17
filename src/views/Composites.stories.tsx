@@ -2,6 +2,7 @@ import { DndContext } from "@dnd-kit/core";
 import { SortableContext } from "@dnd-kit/sortable";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { AppProviders } from "@/contexts/AppProviders";
 import {
   buildTaskCard,
@@ -48,10 +49,14 @@ const STATUSES: TaskCardStatusOption[] = [
   { id: "st-bk-done", name: "Done", colorToken: "status-done" },
 ];
 
-const MEMBERS = [
-  { id: SEED_IDS.users.alice, name: "Alice Nguyen" },
-  { id: SEED_IDS.users.bob, name: "Bob Mensah" },
-  { id: SEED_IDS.users.carol, name: "Carol Diaz" },
+const MEMBERS: AvatarGroupMember[] = [
+  {
+    id: SEED_IDS.users.alice,
+    name: "Alice Nguyen",
+    avatarToken: "avatar-indigo",
+  },
+  { id: SEED_IDS.users.bob, name: "Bob Mensah", avatarToken: "avatar-teal" },
+  { id: SEED_IDS.users.carol, name: "Carol Diaz", avatarToken: "avatar-amber" },
 ];
 
 const MOVE_TARGETS = [
@@ -66,6 +71,7 @@ const nothingPending = () => false;
 
 const CARD_HANDLERS = {
   onOpen: noop,
+  onRename: noop,
   onToggleComplete: noop,
   onSetPriority: noop,
   onSetStatus: noop,

@@ -16,16 +16,19 @@ import {
 } from "lucide-react";
 import { useMemo, type KeyboardEvent, type MouseEvent } from "react";
 
-import { AvatarGroup } from "@/components/ui/AvatarGroup";
+import { AssigneePicker } from "@/components/ui/AssigneePicker";
+import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { DueDateChip } from "@/components/ui/DueDateChip";
+import { DueDatePicker } from "@/components/ui/DueDatePicker";
 import { IconButton } from "@/components/ui/IconButton";
+import { InlineTextField } from "@/components/ui/InlineTextField";
 import { Menu, type MenuItemSpec } from "@/components/ui/Menu";
-import { PriorityBadge } from "@/components/ui/PriorityBadge";
+import { PriorityPicker } from "@/components/ui/PriorityPicker";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { DUE_DATE_PRESETS } from "@/config/dueDates";
+import { MAX_TITLE_LEN } from "@/config/limits";
 import { PRIORITIES, PRIORITY_CONFIG } from "@/config/priorities";
 import type { StatusColorToken } from "@/config/statusCategories";
 import type { TaskCardViewModel } from "@/controllers/hooks/useBoard";
@@ -65,7 +68,7 @@ export interface TaskCardProps {
   readonly statuses: readonly TaskCardStatusOption[];
   readonly moveTargets: readonly { id: string; name: string }[];
   /** Workspace members, for assigning without opening the drawer. */
-  readonly members: readonly { id: string; name: string }[];
+  readonly members: readonly AvatarGroupMember[];
   /** Position in its column, so the menu can offer move up and move down. */
   readonly index: number;
   readonly columnLength: number;
@@ -75,6 +78,7 @@ export interface TaskCardProps {
   readonly isPending?: boolean;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
+  readonly onRename: (taskId: string, title: string) => void;
   readonly onSetPriority: (taskId: string, priority: string) => void;
   readonly onSetStatus: (taskId: string, statusId: string) => void;
   readonly onToggleAssignee: (taskId: string, userId: string) => void;
@@ -107,6 +111,7 @@ export function TaskCard({
   isPending = false,
   onOpen,
   onToggleComplete,
+  onRename,
   onSetPriority,
   onSetStatus,
   onToggleAssignee,
@@ -364,10 +369,20 @@ export function TaskCard({
    * means one thing here (Requirement 4.11, 15.4, 17.5).
    */
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    /*
+     * The target check comes *first*, and that ordering is the whole point.
+     *
+     * dnd-kit's keyboard activator fires on Space. Forwarding every keystroke
+     * to it meant typing a space into the card's inline title field started a
+     * drag and swallowed the character — "Define the onboarding checklist"
+     * committed as "Definetheonboardingchecklist". A drag should only ever
+     * begin from the card itself, never from something focused inside it.
+     */
+    if (event.target !== event.currentTarget) return;
+
     startDrag?.(event);
 
     if (event.defaultPrevented) return;
-    if (event.target !== event.currentTarget) return;
 
     if (event.key === "Enter") {
       event.preventDefault();
@@ -424,19 +439,32 @@ export function TaskCard({
           />
         </span>
 
-        <Tooltip content={task.title}>
-          <span
-            className={cn(
-              "min-w-0 flex-1 text-sm text-ink-900",
-              // Two lines, then ellipsis. The full title is in the tooltip and
-              // in the drawer (Requirement 15.9).
-              "line-clamp-2",
+        {/*
+          Click-to-edit, rather than a label that sends you to the drawer to
+          change one word. `singleLine` so Enter commits: a title is not prose,
+          and ⌘/Ctrl+Enter is not a shortcut anyone discovers on a card.
+          `key` resets the draft when the card is reused for another task.
+        */}
+        <span className="min-w-0 flex-1">
+          <InlineTextField
+            key={`title-${task.id}`}
+            label="Title"
+            value={task.title}
+            placeholder="Untitled task"
+            disabled={!canEdit}
+            singleLine
+            maxLength={MAX_TITLE_LEN}
+            textClassName={cn(
+              // Two lines, then ellipsis. The full title is in the drawer
+              // (Requirement 15.9).
+              "line-clamp-2 text-sm text-ink-900",
               task.isComplete && "text-ink-400 line-through",
             )}
-          >
-            {task.title}
-          </span>
-        </Tooltip>
+            onCommit={(next) => {
+              if (next.trim().length > 0) onRename(task.id, next.trim());
+            }}
+          />
+        </span>
 
         <span
           className={cn(
@@ -461,7 +489,20 @@ export function TaskCard({
       </div>
 
       <div className="mt-2 flex items-center gap-2">
-        <PriorityBadge priority={task.priority} />
+        {/*
+          Priority, date and assignees are all editable from the card itself.
+          The card's own click handler ignores events from `button` descendants,
+          so opening a picker does not also open the drawer
+          (Requirement 15.4).
+        */}
+        <PriorityPicker
+          value={task.priority}
+          disabled={!canEdit}
+          disabledReason={readOnlyReason}
+          onChange={(priority) => {
+            onSetPriority(task.id, priority);
+          }}
+        />
 
         {task.subtaskCount > 0 && (
           <Tooltip
@@ -488,10 +529,26 @@ export function TaskCard({
           </Tooltip>
         )}
 
-        <DueDateChip date={task.dueDate} now={now} />
+        <DueDatePicker
+          value={task.dueDate}
+          now={now}
+          disabled={!canEdit}
+          disabledReason={readOnlyReason}
+          onChange={(dueDate) => {
+            onSetDueDate(task.id, dueDate);
+          }}
+        />
 
         <span className="ml-auto shrink-0">
-          <AvatarGroup users={task.assignees} max={3} size="xs" />
+          <AssigneePicker
+            assignees={task.assignees}
+            members={members}
+            disabled={!canEdit}
+            disabledReason={readOnlyReason}
+            onToggle={(userId) => {
+              onToggleAssignee(task.id, userId);
+            }}
+          />
         </span>
       </div>
     </Card>

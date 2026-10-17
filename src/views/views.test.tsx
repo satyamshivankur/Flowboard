@@ -519,7 +519,16 @@ describe("a read-only task", () => {
     expect(
       within(drawer).getByRole("button", { name: /delete/i }),
     ).toBeDisabled();
-    expect(inlineField(drawer, "title")).toBeDisabled();
+    /*
+     * The title renders as plain text, not a disabled button. A disabled
+     * button still absorbs the click, and on a card or a row that is the click
+     * that opens the drawer — so read-only inline fields stopped being
+     * buttons at all (Requirement 7.10, 15.4).
+     */
+    expect(
+      within(drawer).queryByRole("button", { name: "Edit title" }),
+    ).not.toBeInTheDocument();
+    expect(drawer).toHaveTextContent(BACKLOG.first);
   });
 
   /*
@@ -672,9 +681,11 @@ describe("card quick actions", () => {
 
     await waitFor(() => {
       const todo = screen.getByRole("region", { name: "To do" });
-      const titles = within(todo)
-        .getAllByRole("button")
-        .map((element) => element.getAttribute("aria-label"));
+      // The card roots, not every button inside them — the cards carry inline
+      // editors now, which are buttons of their own.
+      const titles = [
+        ...todo.querySelectorAll('[aria-roledescription="sortable"]'),
+      ].map((card) => card.getAttribute("aria-label"));
 
       // The first card now sits after the one that used to follow it.
       expect(titles.indexOf(BACKLOG.second)).toBeLessThan(

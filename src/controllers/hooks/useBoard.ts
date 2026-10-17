@@ -70,10 +70,17 @@ export interface BoardViewModel {
     readonly id: string;
     readonly name: string;
   }[];
-  /** Workspace members, so a card can assign without opening the drawer. */
+  /**
+   * Workspace members, so a card can assign without opening the drawer.
+   *
+   * Carries `avatarToken` because the inline assignee picker renders each
+   * member as an `Avatar` — a name-only list was the reason that picker showed
+   * plain text where every other surface shows a face (Requirement 13.6).
+   */
   readonly members: readonly {
     readonly id: string;
     readonly name: string;
+    readonly avatarToken: AvatarColorToken;
   }[];
   readonly onMoveToList: (
     taskId: string,
@@ -250,6 +257,7 @@ export function useBoard(
       selectWorkspaceMembers(state, scope).map((user) => ({
         id: user.id,
         name: user.name,
+        avatarToken: user.avatarToken,
       })),
     [state, scope],
   );
