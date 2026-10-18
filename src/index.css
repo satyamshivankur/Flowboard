@@ -144,7 +144,22 @@
   --spacing-sidebar-rail: 3.5rem;
   --spacing-topbar: 3.5rem;
   --spacing-column: 18.75rem;
-  --spacing-column-mobile: 22rem;
+  /*
+   * The phone board's single column, capped to the viewport.
+   *
+   * A flat `22rem` is wider than the 320px floor of the supported range
+   * (Requirement 20.2), and the overflow does not stay inside the board's
+   * horizontal scroller: the `sr-only` labels inside each card are
+   * `position: absolute` at their static offsets, so they land outside the
+   * shell's clip and extend the *document's* scroll area. The page then
+   * scrolls sideways, which 20.2 and 16.9 both forbid.
+   *
+   * `min()` rather than a smaller flat value, so the column still grows with
+   * the root font size — the 22rem arm is what scales, the 88vw arm only caps
+   * it. Above ~400px the cap never engages, so nothing changes on a Pixel-7
+   * class device or at any tablet width.
+   */
+  --spacing-column-mobile: min(88vw, 22rem);
   --spacing-drawer: 32.5rem;
   --spacing-drawer-xl: 36rem;
   --spacing-touch: 2.75rem;

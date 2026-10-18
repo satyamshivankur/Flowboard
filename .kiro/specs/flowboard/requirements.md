@@ -737,6 +737,14 @@ The main axis SHALL NOT be shifted because doing so detaches the overlay from th
 
 20.2. The supported viewport range SHALL be `20rem` (320px) to `120rem` and above. The layout SHALL be usable without horizontal page scrolling at every width in that range.
 
+20.2.1. "No horizontal page scrolling" SHALL be verified by attempting to scroll the document rather than by comparing `scrollWidth` against `clientWidth`. A fractional device pixel ratio puts a sub-pixel difference into those numbers that is not a scroll; what the requirement is about is whether the viewport can be moved off the layout, which only the attempt answers.
+
+20.2.2. A scroll container's `overflow` SHALL NOT be assumed to contain an absolutely positioned descendant. An absolutely positioned element is clipped by an ancestor's `overflow` only where that ancestor is its **containing block** — so a descendant with no positioned ancestor resolves against the initial containing block and escapes every intermediate clip, including the shell's. The shell SHALL therefore establish a containing block, so that content laid out beyond the viewport inside an internal scroll region cannot extend the document's own scroll area.
+
+This is the same family as the overflow-clipped tooltip (13.4.1) and the clipped focus ring (14.8.1), and it is the one that reaches furthest: the escaping element is the visually hidden label inside a card, so the symptom is a blank screen after a sideways swipe rather than anything that looks related to the cause.
+
+20.2.3. A board column's width SHALL be capped to the viewport rather than declared as a flat value wider than the supported floor. A `22rem` column at `20rem` leaves a third of every card off screen, which 20.5's "a width near the viewport" does not describe. The cap SHALL be expressed so that the column still grows with the root font size — the `rem` arm scales and the viewport arm only limits it — so 22.1 is not traded away to satisfy this.
+
 20.3. The system SHALL use a fixed, documented breakpoint set expressed in `rem`: base (`<40rem`, phone), `sm` (`40rem`, large phone), `md` (`48rem`, tablet), `lg` (`64rem`, laptop), `xl` (`80rem`, desktop). No breakpoint values SHALL be declared outside this token set.
 
 20.4. The app chrome SHALL adapt as follows:

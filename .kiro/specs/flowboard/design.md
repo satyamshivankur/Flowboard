@@ -1663,6 +1663,29 @@ Only the column was short. The sidebar's tree scroller has `px-2 py-2` and the b
 
 **This cannot be tested in jsdom**, which loads no CSS and lays nothing out, so neither the computed outline nor the geometry exists there. `e2e/focus-ring.spec.ts` asserts it in a real browser as an invariant — clearance at least the _measured_ reach, not at least `4px` — so bumping either value on either side keeps the test meaningful instead of needing an edit. It includes a sweep over every scroll container in the booted app, and it was verified by reverting the fix: the three geometry assertions failed at 2px, 0px and 254 short control/area pairs.
 
+### The third overflow-clip trap, and the one that reached furthest
+
+Same family as the two above, and worth reading alongside them because the shape repeats: **an absolutely positioned element is clipped by an ancestor's `overflow` only where that ancestor is its containing block.** The tooltip hit it and was portalled. The focus ring hit it and was given clearance. This one hit it from the opposite direction — the escaping element was something nobody thinks about at all.
+
+At 320px the whole app chrome could be scrolled sideways out of view, leaving a blank surface. Found during the Phase 9 demo walk, by measuring rather than looking:
+
+```
+viewport 320 · documentElement.scrollWidth 797 · scrollLeft reached 477
+AppShell: width 320, overflow hidden      ← clipping correctly
+body:     scrollWidth 320                 ← not the culprit
+```
+
+The culprit is `sr-only`. Tailwind's recipe is `position: absolute` with **no offsets**, so the element sits at its static position and — with no positioned ancestor — resolves against the _initial_ containing block. The visually hidden labels inside cards in the board's horizontally scrolled columns therefore escaped `AppShell`'s `overflow-hidden` entirely and extended the document's scroll area. Isolating them confirmed it exactly: nine escapees, the farthest sitting at 656px, which was precisely the document's `scrollWidth`.
+
+Two changes, and both were needed:
+
+- **`AppShell` is now `relative`.** Not to position anything — to make the shell a containing block so those labels are clipped there. This is what actually fixes the document scroll.
+- **`--spacing-column-mobile` is `min(88vw, 22rem)`** rather than a flat `22rem`. `design.md` specified `min(88vw, 22rem)` from the start and the code never implemented it; a 22rem column at 320px put a third of every card off screen. `min()` rather than a smaller flat value so the column still grows with the root font size — the `22rem` arm scales, the `88vw` arm only caps it, and above ~400px the cap never engages, so nothing changes on a Pixel-7-class device or at any tablet width.
+
+The column width alone was not enough, which is the part worth remembering: it took `scrollWidth` from 797 to 656 and left the page still scrolling. Fixing the visible symptom moved the number without touching the cause.
+
+**Measured at every width, not just the floor.** The bug affected 320, 360, 414 and 640 — every phone and small-tablet width — and correctly did not affect 768 and up, where the board's content fits. `e2e/responsive.spec.ts` asserts it across that range, attempting the scroll rather than comparing `scrollWidth` to `clientWidth`, because a fractional device ratio puts a sub-pixel difference into those numbers that is not a scroll. It also asserts the two things that would let the fix be satisfied dishonestly: that the board's own track still scrolls, and that a column fits inside 320px. Verified by reverting the fix, which failed six of the twelve cases with the overflow in the message.
+
 ### Loading and feedback
 
 | Trigger                   | Treatment                                                                |
@@ -1743,8 +1766,8 @@ Vitest + jsdom + Testing Library, single-run via `npm run test`. `src/test/setup
 
 **Extensibility tests** — these are what make the forward-compatibility claims verifiable rather than aspirational (18.9–18.11):
 
-- `registry.test.ts` — validation, reorder and move logic driven through a **synthetic container type** injected into a test registry. If any of that logic secretly hard-codes `space`/`folder`/`list`, this test fails. This is the single most valuable test in the extensibility set, because it is the one that catches a conditional someone added in a hurry.
-- `capabilities.test.ts` — asserts permission outcomes from `ROLE_CAPABILITIES` rather than restating "members can't archive", so adding a role does not require editing assertions.
+- The **synthetic container type** — validation, reorder and move logic driven through a type injected into a test registry. If any of that logic secretly hard-codes `space`/`folder`/`list`, it fails. This is the single most valuable test in the extensibility set, because it is the one that catches a conditional someone added in a hurry. It lives in `config/config.test.ts` ("accepts a synthetic hierarchy level without code changes") and `model/validation.test.ts` ("follows an injected registry with a synthetic level") — **not** in a `registry.test.ts`, which this document and task 2.5 both named for a while and which does not exist. The coverage is real; the filename was not.
+- The **synthetic role** — permission outcomes asserted from `ROLE_CAPABILITIES` rather than by restating "members can't archive", so adding a role does not require editing assertions. Also in `config/config.test.ts` ("supports a synthetic role with no change to the check function"), rather than a `capabilities.test.ts`. Same correction.
 - `workspaceScope.test.ts` — a two-workspace fixture asserting that no `ws-acme` selector returns a `ws-other` container, task or status, and that `canView` rejects a cross-workspace node.
 - `persistence.test.ts` — the store built on `memoryAdapter`, proving no coupling to `localStorage`.
 
@@ -1791,12 +1814,13 @@ What those stubs buy is that the board mounts and the keyboard path runs. They d
 
 **End-to-end** — Playwright, two projects: `chromium` at desktop width and `mobile` on a Pixel 7 descriptor, which is not a redundant viewport because below `lg` the sidebar renders a focus-trapping `Drawer` instead of a static `aside` — a DOM difference, not a CSS one. The suite runs against `vite preview` on the production build, so it exercises what ships, with the clock pinned to `SEED_NOW` and the timezone matched to the unit suite.
 
-Nine spec files. What each buys that jsdom cannot:
+Eleven spec files, 88 cases. What each buys that jsdom cannot:
 
 - `drag-drop`, `tree-drag`, `failure-rollback` — real layout, so collision detection actually runs. jsdom reports every rect as zero, which is how four separate cross-column faults reached a green suite.
 - `touch-drag` — the **discrimination** Requirement 20.8 is about. One `PointerSensor` serves every pointer type and resolves its constraint from `event.pointerType`, so the same 260px of travel must page the board after a 30ms press and drag a card after a 400ms one. The two quick-swipe specs are the ones that would catch a regression: a suite proving only that dragging works would pass with the activation delay removed, which is exactly the state that makes the mobile board unusable. `page.touchscreen` offers only `tap()`, so the gestures are dispatched through CDP.
 - `permissions` — the flow the brief singles out twice. Asserted by switching user and comparing the whole tree as `"{level}:{name}"` strings, never by reading grant rows from storage: a spec that inspected storage would pass with a sidebar rendering the wrong thing.
 - `drawer`, `navigation`, `persistence`, `smoke` — focus trapping, selection, survival across a reload, and a boot with no console errors.
+- `focus-ring`, `responsive` — the two geometry invariants. Both need computed styles and real rects, so both are structurally impossible in jsdom; both assert a _measured_ relationship rather than a literal number, so changing either side of it keeps the test meaningful; and both were verified by reverting their fix rather than trusted on a green run.
 
 Two documented skips, both so a behaviour is covered on one project rather than fudged on both: pointer drag does not run on mobile, and the two dialog-driven access specs do not either. The second has a cause worth recording — Chromium's mobile emulation reports `innerWidth` 788 against a `clientWidth` and `visualViewport.width` of 412, so `Dialog`'s `fixed inset-0 flex items-end` wrapper lays its panel out against a box roughly 1.9× the visible viewport and the footer lands near y=1533 in an area 839 tall. Media queries read the real width, so the app's phone layout is correct; it is the emulated containing block that is not. Established as emulation rather than a bug by counting one wrapper and one button with the dialog open, and by both flows passing on chromium.
 

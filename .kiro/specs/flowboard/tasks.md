@@ -629,74 +629,108 @@ nothing further was added — the README names them as the attempted pair.
 
 ## Phase 9 — Tests and documentation
 
-- [ ] 23. Component test
-- [ ] 23.1 Render `AppShell` in `AppProviders` with a seeded store and assert the user-switch behaviour
-  - As Alice the tree shows Marketing; switching to Bob removes Marketing and Infra
+- [x] 23. Component test
+  - **Already satisfied when this phase was reached**, by work done in Phases 5–19 rather than here. Verified by reading the tests rather than assumed from the suite being green, and recorded as done rather than duplicated — a second test asserting the same thing would add a maintenance surface and no coverage
+- [x] 23.1 Render `AppShell` in `AppProviders` with a seeded store and assert the user-switch behaviour
+  - `src/views/AppShell.test.tsx`: "hides Marketing from Bob and shows it to Alice" and "hides the denied Infra list from Bob but keeps it for Carol" — the two halves of the task, which also covers Carol bringing both back
+  - Strengthened beyond the task's wording by `e2e/permissions.spec.ts`, which compares **whole trees** as `"{level}:{name}"` strings for all three users, so a reparent cannot masquerade as a visibility change
   - _Requirements: 18.7, 8.3_
-- [ ] 23.2 Assert drawer behaviour
-  - Clicking a card opens the drawer with that task's title; Escape closes it and returns focus to the card
+- [x] 23.2 Assert drawer behaviour
+  - `src/views/views.test.tsx`: "opens the drawer on a card click, with the task's details" and "closes on Escape and returns focus to the card that opened it" — the latter asserting focus lands back on the card rather than at the top of the document
   - _Requirements: 18.7, 7.2, 7.3_
 
-- [ ] 24. Write the README
-- [ ] 24.1 Replace the Vite boilerplate with run instructions for dev, test, lint, build and Storybook
+- [x] 24. Write the README
+  - Three documents, not one: `README.md` is the entry point, `ARCHITECTURE.md` carries the extension points (24.9.3), `AI_USAGE.md` the usage log (24.8). The README links both rather than absorbing them — a single file covering run instructions, the data model, permissions, eight extension seams and an AI log is a file nobody reads to the end
+  - Deliberately **not** a copy of `design.md`. The design document is the long-form reasoning and keeps the failure history; the README answers "how do I run this, what is it, and what did you decide" for someone who has not read either
+- [x] 24.1 Replace the Vite boilerplate with run instructions for dev, test, lint, build and Storybook
+  - Every script in `package.json` in one table, plus why the test scripts pin `TZ=Asia/Kolkata` — a half-hour offset is what catches the calendar-day conversions a UTC-only runner lets pass
+  - Added a "30-second tour" ahead of the architecture, because the two things worth seeing first — the forced-failure rollback and the Alice/Bob switch — need no setup and are not discoverable from a file listing
   - _Requirements: 19.1_
-- [ ] 24.2 Add the Mermaid architecture diagram and the MVC layer mapping
+- [x] 24.2 Add the Mermaid architecture diagram and the MVC layer mapping
+  - The layer diagram, a per-layer ownership table, the mutation pipeline, and the lint zones that enforce the boundaries — the point being that the separation is a build failure rather than a convention
   - _Requirements: 10.7, 19.2_
-- [ ] 24.3 Document the data model — relationships, fractional positions, archive-vs-delete strategy
+- [x] 24.3 Document the data model — relationships, fractional positions, archive-vs-delete strategy
+  - An ER diagram, the normalized state shape, and the three forward-compatibility details with what each one costs today. Fractional positions as the formula plus the rebalance threshold; archive-versus-delete as the deliberate asymmetry it is
   - _Requirements: 19.3_
-- [ ] 24.4 Document permission enforcement and the extension path
-  - Resolution algorithm, admin bypass, view/edit capability split, and how to extend to team grants, role hierarchies and field-level permissions
+- [x] 24.4 Document permission enforcement and the extension path
+  - The resolution walk as pseudocode, why structural checks precede the admin bypass (an earlier draft had it the other way and let an admin "view" a node in another workspace), why the workspace check covers every node in the chain, the `canView`/`canReach` distinction, the capability table, and the access translation
+  - Each of the four extension paths with the specific thing already in place for it — including that `isUserSubject` is a `Record` lookup so widening the subject union is a compile error rather than a filter that starts deleting team grants
   - _Requirements: 8.12, 19.4_
-- [ ] 24.5 Document the simulated latency and failure-injection layer and how to demo error and rollback paths
+- [x] 24.5 Document the simulated latency and failure-injection layer and how to demo error and rollback paths
+  - Each dev-panel control and what it demonstrates, and that rollback restores the **fractional positions** rather than just the visible order — the failure a visual check cannot see. Named all three layers that cover it, since the interesting part is that they cover different links in the same chain
   - _Requirements: 19.5_
-- [ ] 24.6 Document the `localStorage` choice, its versioned key and the reset path
+- [x] 24.6 Document the `localStorage` choice, its versioned key and the reset path
+  - `flowboard:v1`, the adapter interface, why the signatures are async even though `localStorage` is not, why Zustand's `persist` middleware is not used, and why the save subscription reference-compares rather than deep-compares
   - _Requirements: 19.6_
-- [ ] 24.7 Document trade-offs, what was cut, and a prioritized week-2 plan
+- [x] 24.7 Document trade-offs, what was cut, and a prioritized week-2 plan
+  - Fourteen trade-offs with reasoning rather than apology, a "known open items" list, and six week-two items in priority order
+  - The week-two list is led by wiring the unused-export lint rule, which is the only item that closes a **stated requirement currently unmet** (21.20) rather than adding something new
   - _Requirements: 19.7_
-- [ ] 24.8 Write the AI usage log, with the long form in `AI_USAGE.md`
+- [x] 24.8 Write the AI usage log, with the long form in `AI_USAGE.md`
+  - Grounded in what the repository records rather than recalled: `tasks.md` is a log of corrections, so every specific in the document is checkable against a file
+  - Organised by **failure mode** rather than chronologically, because the categories are the transferable part: confidently wrong about the framework (silent, no error — interpolated Tailwind classes, the `--size-*` namespace, the `cn()` ordering, the `useShallow` loop); right-looking code with a wrong accessible name (three instances); comments asserting behaviour the code did not have (two); subtly wrong ordering; drag and drop five separate times; and tests that pass for the wrong reason
+  - Carries a review note at the top: it makes first-person claims about process, so it is a draft for the author to own rather than a finished attestation
   - _Requirements: 19.8_
-- [ ] 24.9 List every inline `style=` exception with file location and justification
+- [x] 24.9 List every inline `style=` exception with file location and justification
   - Two, not four: `components/ui/Tooltip.tsx` (portalled overlay coordinates) and `components/ui/Drawer.tsx` (bottom sheet drag-to-dismiss offset)
   - dnd-kit's sortable transform was retired in task 26 — `@dnd-kit/dom` writes it to the element directly, so neither `TaskCard` nor `TreeItem` carries an inline style (Requirement 13.4.2)
   - The sidebar resizer's live width was retired in task 27, along with the handle (Requirement 13.4.3)
+  - Verified rather than copied from this list: `grep -rn 'style={' src` returns exactly `Tooltip.tsx:235` and `Drawer.tsx:149`, which is the documented pair
   - _Requirements: 13.4, 13.4.2, 13.4.3, 19.9_
-- [ ] 24.9.1 Document the `rem` unit rule
-  - The rule, the four exceptions taken under 22.4 with their locations, and the repeatable verification command
+- [x] 24.9.1 Document the `rem` unit rule
+  - The rule, the four exceptions with their actual locations, and the verification command — which is `npm run lint:units`, not a grep, because the guard already encodes the allow list
+  - **Corrected the grep this plan recommended.** Task 25.3 says `rg -n '\bpx\b' src`, which matches Tailwind's `px-3` padding utility — 80-odd hits that are not units at all. The README gives `[0-9]px` and the arbitrary-value pattern instead, which return only shadow tokens and prose
+  - Also recorded that the pointer-travel thresholds never appear as `px` in source at all: they are bare numbers handed to dnd-kit, so the exception is about what the number _means_ rather than about a literal to find
   - _Requirements: 19.13, 22.5, 22.7_
-- [ ] 24.9.2 Document the mobile-first approach
-  - Breakpoint token set, the per-surface adaptation table, how touch drag and drop is handled, which widths were verified by hand, and that visual regression testing was not automated
+- [x] 24.9.2 Document the mobile-first approach
+  - The breakpoint table, the per-surface adaptation table, the touch thresholds and why they resolve from pointer type rather than viewport width, and the one surface that is allowed a JavaScript breakpoint check with the reason it is the only one
+  - Split the verification claim into automated / by hand / **not automated**, with visual regression named in the third. Saying which widths were checked by hand is more useful than implying CI covers it
   - _Requirements: 19.11, 20.14_
-- [ ] 24.9.3 Write `ARCHITECTURE.md` covering every extension point
-  - One section per seam: container registry, view registry, enumeration configs, capability table, grant resolver, task depth, persistence adapter, transport adapter
-  - Each with the concrete steps to extend it, plus worked examples of adding a second workspace and adding a calendar view — naming the exact files each would touch
+- [x] 24.9.3 Write `ARCHITECTURE.md` covering every extension point
+  - Eight sections, one per seam, each with the steps and a table of what is deliberately _not_ touched — the second being the part that makes the claim checkable
+  - Worked examples for the second workspace and the calendar view, the latter naming all three files and nothing else
+  - Opens with the general rule, because it is the one thing worth remembering: if you are adding a `switch` over a domain union outside `src/config`, the extension point exists and you have missed it
+  - Closes with "where the seams are _not_" — `localStorage` is not a security boundary, access is per container, `Grant` scopes a container and never a task. A document listing only what extends well is marketing
   - _Requirements: 19.12, 21.21_
-- [ ] 24.10 List the design-system inventory, the Storybook pointer, and the two attempted stretch goals
+- [x] 24.10 List the design-system inventory, the Storybook pointer, and the two attempted stretch goals
+  - All 35 primitives named, the seven story files and what each covers, and why `stories.test.tsx` renders every story — `build-storybook` proves a story _bundles_, and one that throws on render still builds and then misrepresents the component it documents
+  - The two stretch goals with the reasoning that matters for each: search scoping lives in the Model because a title-matching search box is the easiest way to leak the name of something a user cannot open
   - _Requirements: 19.10, 23.4_
-- [ ] 24.11 State the accessibility testing scope honestly
-  - Automated checks and manual keyboard testing performed; assistive-technology testing and expert review not performed; no WCAG conformance claimed
+- [x] 24.11 State the accessibility testing scope honestly
+  - Split into what was done (automated contrast in CI, manual keyboard testing, role-first queries throughout) and what was **not** (no screen reader, no assistive technology of any kind, no expert review), with the explicit statement that no WCAG conformance is claimed
+  - Named the two things automation cannot find, rather than leaving "not tested with AT" to imply it probably would have passed
   - _Requirements: 17.8_
 
-- [ ] 25. Final verification
-- [ ] 25.1 Run `npm run lint`, `npm run build` and `npm run test` clean
+- [x] 25. Final verification
+  - Four of the six passed as written. Two found something: 25.4 found that two test files this plan names do not exist under those names, and 25.6 found a Requirement 20.2 violation at every phone width
+- [x] 25.1 Run `npm run lint`, `npm run build` and `npm run test` clean
+  - All clean: `lint` (the `px` guard over 171 files plus ESLint), `typecheck` across all four TS projects, `build`, 666 unit tests in 35 files, and 88 end-to-end cases across 11 spec files and 2 browser projects
+  - **One stated requirement is not met, and it is a lint gap rather than a lint failure.** Requirement 21.20 says lint shall fail on unused exports. `eslint.config.js` configures `import-x/no-cycle`, `no-self-import` and `no-useless-path-segments` under a "Module hygiene — Requirement 21.20" comment, and **no unused-export rule at all**. So the thirteen dead Model exports from task 38 pass lint, which is exactly why they accumulated silently. Recorded here and as the first week-two item rather than left for a reviewer to notice
   - _Requirements: 10.5, 18.1_
-- [ ] 25.2 Grep the repo to prove the styling constraints hold
-  - No `.css` file other than `src/index.css`; no `styled`/`emotion`/`sass` dependencies; every `style=` occurrence is one of the two documented exceptions
+- [x] 25.2 Grep the repo to prove the styling constraints hold
+  - One stylesheet: `find src -name '*.css'` returns `src/index.css` and nothing else. No `.scss`, no `.module.css`
+  - No CSS-in-JS or preprocessor dependency. Worth noting the naive check gives a false positive — a `/styled|emotion|sass|less/` pattern matches `@headlessui/react` on "less", so the real check anchors the package names
+  - `grep -rn 'style={' src` returns exactly two: `Tooltip.tsx:235` and `Drawer.tsx:149`, the documented pair
   - _Requirements: 13.1, 13.2, 13.4_
-- [ ] 25.3 Run the `px` audit and confirm every hit is an allowed exception
-  - `rg -n '\bpx\b' src` — remaining matches must be hairline borders, shadow offsets, pointer-travel thresholds (the sensor activation distance and touch tolerance, and the sheet's drag-to-dismiss threshold) or raster intrinsic sizes, and each must be annotated in code
-  - Confirm no arbitrary Tailwind value and no dimensional `@theme` token uses `px`, and that the root font size is not overridden
+- [x] 25.3 Run the `px` audit and confirm every hit is an allowed exception
+  - **The command this plan specifies is wrong**, and that is the finding. `rg -n '\bpx\b' src` matches Tailwind's `px-3` padding utility — `-` is a non-word character, so the word boundary holds — producing 80-odd hits that are not units. An audit whose output is mostly noise is an audit nobody finishes
+  - The precise checks: `[0-9]px` for real lengths, and `[a-z-]+-\[[^]]*[0-9]px[^]]*\]` for arbitrary values. First returns only the `--shadow-*` tokens and prose in comments; second returns nothing
+  - Every remaining hit is an allowed exception: `box-shadow` offsets in the `@theme` block, three `h-px`/`w-px` hairlines, and comments describing the pointer thresholds. The thresholds themselves never appear as `px` in source — they are bare numbers handed to dnd-kit
+  - Root font size not overridden: no `font-size` rule anywhere in `src/index.css`
   - _Requirements: 22.3, 22.4, 22.7, 22.8_
-- [ ] 25.4 Audit the scalability seams against the requirement, not the happy path
-  - No module-level workspace singleton; no `role` field on `User`; no hierarchy `switch` outside the registry; no priority or capability set restated inline; no `localStorage` or latency reference inside a slice
-  - Confirm `registry.test.ts`, `capabilities.test.ts`, `workspaceScope.test.ts` and `persistence.test.ts` all pass and genuinely exercise the synthetic fixtures
+- [x] 25.4 Audit the scalability seams against the requirement, not the happy path
+  - All six seams hold. No `role` on `User` (it is on `Membership`, with the reasoning in a doc comment); `WORKSPACE_ID` appears only in `seed.ts` and in the test fixtures' deliberate second workspace; `activeWorkspaceId` is read by `useScope` alone among consumers, the other hits being its owners — the session slice, the pipeline's snapshot and the store's persistence; no `localStorage` inside any slice or Model logic; no latency reference inside a slice; no hierarchy type comparison outside the registry, the only literal hits being the seed's own data and a comment explaining why `holdsTasks` is used instead
+  - **Two of the four named test files do not exist.** `registry.test.ts` and `capabilities.test.ts` are named by this task, by tasks 2.5 and 3.3, and by `design.md`'s testing section. The _coverage_ is real and genuinely uses synthetic fixtures — the injected hierarchy level is in `config/config.test.ts` and `model/validation.test.ts`, the synthetic role in `config/config.test.ts` — so Requirement 18.9 is met and three documents were naming files that were never created. `design.md` corrected to name the real locations
+  - `workspaceScope.test.ts` and `persistence.test.ts` exist, pass, and do exercise the two-workspace fixture and the in-memory adapter respectively
   - _Requirements: 18.9, 18.10, 18.11, 21.1, 21.2, 21.3, 21.4, 21.6, 21.7, 21.10, 21.11_
-- [ ] 25.5 Audit the readability conventions
-  - No `export default`, no `any`, no nested ternaries; exhaustive switches carry a `never` default; doc comments present on Model exports, design-system props, Context hooks and adapter interfaces; one vocabulary across layers
-  - Confirm tests import public module surfaces only, with no reaching into internals
+- [x] 25.5 Audit the readability conventions
+  - Clean: zero `export default` in `src` outside the seven story files, where CSF requires it and the rule is scoped off; zero `: any` or `as any`; no nested ternaries. All three are lint-enforced rather than review-enforced — `no-restricted-syntax` carries an `ExportDefaultDeclaration` selector and a nested-`ConditionalExpression` selector, and `@typescript-eslint/no-explicit-any` is an error
+  - Exhaustive unions are enforced by `switch-exhaustiveness-check` rather than by the `never` default alone; the explicit `never` guards are in `selectors.ts` and `ContainerFormDialog.tsx`. Worth remembering that the `never` _binding_ is a compile-time device only — task 30.1's `return exhaustive` bug returned its runtime value and dropped a grant row
   - _Requirements: 21.13, 21.14, 21.15, 21.16, 21.17, 21.19, 21.22_
-- [ ] 25.6 Walk the demo script end to end at desktop and at phone width
-  - Tree navigation → kanban drag → card quick action → task drawer → forced failure and rollback → Alice vs Bob under 30 seconds
-  - Repeat at `20rem` with touch emulation, confirming the off-canvas sidebar, column paging, bottom sheet and long-press drag
+- [x] 25.6 Walk the demo script end to end at desktop and at phone width
+  - Walked in a browser at 1440px and at 320px: tree navigation, the board, the drawer as a right panel and as a bottom sheet, the off-canvas sidebar sheet, and the column pager. The drag, the forced-failure rollback, the card quick actions and the Alice/Bob switch are all held by `e2e/` and were not re-walked by hand
+  - One correct behaviour worth recording because it looked like a bug for a moment: clicking a card's title opens the **inline editor**, not the drawer. That is Requirement 15.4 working — the drawer is reached by clicking the card body or pressing Enter
+  - **The phone walk found a Requirement 20.2 violation**, which is written up as task 46 below. The short version: at 320px the entire chrome could be scrolled sideways out of view, leaving a blank surface
   - _Requirements: 8.14, 9.8, 20.2, 20.8_
 
 ---
@@ -1319,3 +1353,45 @@ between them.
   - Asserted against the **measured** reach rather than the literal `4px`, so changing either value on either side keeps the test meaningful instead of needing an edit
   - Verified by reverting the fix: the three geometry assertions failed at 2px, 0px and 254 short control/area pairs. A regression test nobody has seen fail is a regression test nobody has tested
   - _Requirements: 14.8.1, 14.8.2, 14.8.3, 14.8.4_
+
+---
+
+## Phase 23 — The page scrolled sideways on every phone width
+
+Found by the Phase 9 demo walk (task 25.6), not by a test. At 320px the whole
+app chrome could be dragged sideways out of view, leaving a blank surface — a
+Requirement 20.2 and 16.9 violation that 666 green unit tests could not see,
+because jsdom lays nothing out.
+
+It is the third instance of one CSS rule, and the two earlier ones are in this
+file already: **an absolutely positioned element is clipped by an ancestor's
+`overflow` only where that ancestor is its containing block.** The tooltip hit
+it and was portalled (Phase 4, Phase 16). The focus ring hit it and was given
+clearance (Phase 22). This one hit it from the far side — the escaping element
+was `sr-only`, which nobody thinks about at all.
+
+- [x] 46. Stop the document scrolling horizontally
+- [x] 46.1 Measure it before touching anything
+  - `documentElement.scrollWidth` 797 against a `clientWidth` of 320, and `scrollLeft` reached 477 — so the page genuinely scrolled rather than merely reporting a wide box. With the chrome scrolled, the top bar's `left` was `-336` and the viewport showed empty surface
+  - The shell was not at fault: 320 wide, `overflow: hidden`, clipping correctly. `document.body.scrollWidth` was 320 too. The overflow was on `html`
+  - Isolating the absolutely positioned elements whose containing block is the **initial** containing block gave the answer exactly: nine escapees, all `sr-only`, the farthest sitting at 656px — which was precisely `documentElement.scrollWidth` at that point. Not a correlation, an identity
+  - _Requirements: 20.2, 20.2.1, 20.2.2_
+- [x] 46.2 Make the shell a containing block
+  - `AppShell` is now `relative`. Not to position anything — Tailwind's `sr-only` is `position: absolute` with no offsets, so with no positioned ancestor it resolves against the initial containing block and escapes every intermediate `overflow: hidden` on the way up. The visually hidden labels inside cards in the board's horizontally scrolled columns were therefore extending the document's scroll area from outside the shell's clip
+  - One class, and it is the fix. Commented at length because `relative` with nothing positioned against it reads as dead code to the next person, and deleting it silently reintroduces this
+  - _Requirements: 20.2, 20.2.2_
+- [x] 46.3 Cap the mobile column to the viewport
+  - `--spacing-column-mobile` from a flat `22rem` to `min(88vw, 22rem)`. `design.md` has specified `min(88vw, 22rem)` since Phase 0 and the code never implemented it — a 22rem column at 320px put a third of every card off screen, which is not 20.5's "a width near the viewport"
+  - `min()` rather than a smaller flat value so the column still grows with the root font size: the `22rem` arm scales, the `88vw` arm only caps it. Above ~400px the cap never engages, so the Pixel-7 e2e project and every tablet width are unchanged — which is why this could be done without re-baselining the touch specs
+  - **Not sufficient on its own, and that is the lesson.** It took `scrollWidth` from 797 to 656 and the page still scrolled. Fixing the visible symptom moved the number without touching the cause, and stopping there would have shipped a narrower column and the same bug. Noticed in Phase 20 (task 43.6) as "the column overflows the screen" and deliberately deferred — the deferral was reasonable, but it had measured the wrong thing
+  - _Requirements: 20.2.3, 20.5, 22.1_
+- [x] 46.4 Hold it with a spec that could not live in jsdom
+  - `e2e/responsive.spec.ts`, 12 cases per project: no horizontal page scroll at 320/360/414/640/768/1024/1280/1920, with the sheet open, with the drawer open, that the board's own track still scrolls, and that a column fits inside 320px
+  - The last two exist so the invariant cannot be satisfied dishonestly. Clipping the board or shrinking the column to nothing would pass the first assertion and break the phone layout
+  - Scroll measured by **attempting** it rather than comparing `scrollWidth` to `clientWidth`: a fractional device ratio puts a sub-pixel difference into those numbers that is not a scroll, and a test that fails on it would get relaxed until it stopped meaning anything
+  - **Verified by reverting the fix**: six of twelve failed, with the overflow in the message — 336px at 320, 367px at 360, 383px at 414 — and correctly passed at 768 and up where the board's content fits. So the bug was every phone and small-tablet width, and the test knows the difference
+  - _Requirements: 20.2, 20.2.1, 20.2.2, 20.2.3_
+- [x] 46.5 Record the pattern rather than the instance
+  - Requirement 20.2.2 now states the containing-block rule directly, alongside 13.4.1 (the tooltip) and 14.8.1 (the focus ring), because this is the third time one CSS rule has produced a bug that looked like three unrelated ones
+  - The shared tell, worth more than any of the three fixes: **the styling of both components was correct in isolation and the defect lived in the relationship between them.** None of the three is findable by reading either file
+  - _Requirements: 13.4.1, 14.8.1, 20.2.2_

@@ -90,7 +90,25 @@ export function AppShell() {
   return (
     <div
       data-density={density}
-      className="flex h-dvh overflow-hidden bg-surface-sunken"
+      /*
+       * `relative` is not for positioning anything — it is what stops the
+       * page scrolling sideways on a phone (Requirement 20.2, 16.9).
+       *
+       * Tailwind's `sr-only` is `position: absolute` with no offsets. With no
+       * positioned ancestor its containing block is the *initial* containing
+       * block, and an absolutely positioned element is not clipped by an
+       * ancestor's `overflow` unless that ancestor is its containing block —
+       * so the visually hidden labels inside cards in the board's horizontally
+       * scrolled columns escaped this element's `overflow-hidden` entirely and
+       * extended the document's scroll area. At 320px the whole chrome could
+       * be scrolled out of view, leaving a blank surface.
+       *
+       * Making the shell a containing block clips them here instead. Measured
+       * rather than reasoned: the farthest escapee sat at exactly the
+       * document's `scrollWidth`, and `e2e/responsive.spec.ts` now asserts no
+       * horizontal page scroll across the supported range.
+       */
+      className="relative flex h-dvh overflow-hidden bg-surface-sunken"
     >
       <Sidebar />
 
