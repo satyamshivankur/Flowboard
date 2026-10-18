@@ -70,6 +70,28 @@ export interface TaskTableViewModel {
    * (Requirement 5.9).
    */
   readonly onCreate: (title: string) => Promise<Result<unknown>>;
+  /**
+   * Creates a subtask under `parentTaskId`, in the same list.
+   *
+   * Takes the parent's id rather than closing over one, which is the whole
+   * reason this is a separate callback from `onCreate`. The drawer can bind
+   * `onAddSubtask` to the open task because there is only ever one of those;
+   * this view has every task in the list on screen at once, so a bound
+   * callback would file the new subtask under whichever task the hook happened
+   * to capture. That would not error — it would silently parent it to the
+   * wrong task, which is worse than a refusal. Same shape, and the same
+   * reasoning, as `onSubtaskUpdate` on the drawer's view-model
+   * (Requirement 7.4.1.2).
+   *
+   * Depth is left to the Controller: `create` already runs
+   * `validateSubtaskDepth` against `MAX_TASK_DEPTH`, so this cannot produce a
+   * subtask of a subtask even if a caller offers the affordance where it
+   * should not.
+   */
+  readonly onCreateSubtask: (
+    parentTaskId: string,
+    title: string,
+  ) => Promise<Result<unknown>>;
 }
 
 /**
@@ -159,6 +181,18 @@ export function useTaskTable(
     [actions, scope, listId],
   );
 
+  /*
+   * `listId` is the selected list, not a lookup from the parent, because every
+   * row this view renders belongs to it — and a subtask must live in its
+   * parent's list anyway, which `create` enforces through
+   * `validateSubtaskList`.
+   */
+  const onCreateSubtask = useCallback(
+    (parentTaskId: string, title: string) =>
+      actions.create(scope, { listId: listId ?? "", title, parentTaskId }),
+    [actions, scope, listId],
+  );
+
   const members = useMemo(
     () =>
       selectWorkspaceMembers(state, scope).map((user) => ({
@@ -192,6 +226,7 @@ export function useTaskTable(
       onQuickUpdate,
       onToggleComplete,
       onCreate,
+      onCreateSubtask,
     }),
     [
       rows,
@@ -208,6 +243,7 @@ export function useTaskTable(
       onQuickUpdate,
       onToggleComplete,
       onCreate,
+      onCreateSubtask,
     ],
   );
 }

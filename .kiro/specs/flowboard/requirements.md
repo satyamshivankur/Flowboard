@@ -209,6 +209,20 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 5.9. An empty list SHALL render an empty state with a primary "create task" action.
 
+5.10. The list view SHALL also offer a create-task affordance for a list that is **not** empty, above the rows and outside the scrolling region so it does not scroll away.
+
+5.10.1. An affordance present only in the empty state is not sufficient. It disappears the moment a list holds one task, which leaves the board as the only place to add a second — so the view that is best suited to entering several tasks in a row is the one that cannot. The empty state's action remains the primary one while there is nothing to show; this is the same action for every other moment.
+
+5.11. The list view SHALL allow a subtask to be created from the row that will parent it, without opening the drawer. The table has nested, disclosed and inline-edited subtasks since it was built while offering no way to create one, so the drawer was the only route — and reaching it means opening the parent task first, which is a detour to perform the most obvious action the hierarchy affords (Requirement 5.7, 15.10).
+
+5.11.1. The create callback SHALL take the parent's id as an argument rather than being bound to one task. The drawer can bind `onAddSubtask` to the open task because there is only ever one; this view renders every task in the list at once, so a bound callback would file the subtask under whichever task was captured. That is a silent wrong-parent write rather than a refusal, and it SHALL be asserted directly: a subtask created from one row leaves every other row's children unchanged (Requirement 7.4.1.2).
+
+5.11.2. WHERE the affordance adds to a collapsed subtask group, the group SHALL be revealed. Otherwise the new row lands behind a disclosure control and the action appears to have done nothing.
+
+5.11.3. The affordance SHALL NOT be offered on a row that cannot hold subtasks, and that condition SHALL be resolved from the depth limit rather than from a comparison against the top level, so raising `MAX_TASK_DEPTH` deepens the tree without this having to be found and rewritten (Requirement 21.9). The Controller already refuses a subtask of a subtask, and a control whose only outcome is a guaranteed error is worse than no control — the same reasoning as the three actions a subtask does not offer (Requirement 2.13).
+
+5.11.4. Both affordances SHALL appear in both responsive forms of this view, and SHALL be disabled rather than hidden when the current user lacks permission to create, with the reason stated once per surface rather than repeated on every control (Requirement 17.2, 20.6).
+
 ---
 
 ## Requirement 6 — Sidebar navigation

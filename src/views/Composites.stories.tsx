@@ -488,6 +488,7 @@ function TableHost({
       onSetPriority={noop}
       onSetDueDate={noop}
       onToggleAssignee={noop}
+      onCreateSubtask={noop}
     />
   );
 }
@@ -764,6 +765,7 @@ function CardListHost() {
       onSetPriority={noop}
       onSetDueDate={noop}
       onToggleAssignee={noop}
+      onCreateSubtask={noop}
     />
   );
 }

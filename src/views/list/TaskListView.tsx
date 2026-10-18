@@ -130,6 +130,19 @@ export function TaskListView({ listId }: ViewProps) {
           { retryable: true },
         );
       },
+      /*
+       * Keyed by the *parent*, so the row that sprouts the subtask is the row
+       * that dims. The new subtask has no id to key by yet, which is the one
+       * case where keying by the acted-on row rather than the changed row is
+       * the honest choice.
+       */
+      onCreateSubtask: (parentTaskId: string, title: string) => {
+        void run(
+          parentTaskId,
+          () => table.onCreateSubtask(parentTaskId, title),
+          { retryable: true },
+        );
+      },
     }),
     [run, table],
   );
@@ -231,24 +244,91 @@ export function TaskListView({ listId }: ViewProps) {
       <ReadOnlyNotice reason={table.readOnlyReason} subject="list" />
 
       {/*
-        The sort dropdown replaces the table headers below `md`, offering the
-        identical option set (Requirement 20.6).
-      */}
-      <div className="shrink-0 px-3 pt-3 md:hidden">
-        <Select
-          label="Sort by"
-          value={`${sort.field}:${sort.direction}`}
-          options={SORT_OPTIONS}
-          onChange={(value) => {
-            const [field, direction] = value.split(":");
+        The toolbar above the list.
 
-            setSort({
-              field: field as SortField,
-              direction: direction === "desc" ? "desc" : "asc",
-            });
-            setPage(0);
-          }}
-        />
+        Creating a task used to be reachable from this view *only* through the
+        empty state, so the moment a list had one task the affordance
+        disappeared and the board became the only place to add another. The
+        empty state's action still exists and is still the primary one when
+        there is nothing to show; this is the same action for a list that is
+        not empty (Requirement 5.9, 15.10).
+
+        Outside `ScrollShadow` on purpose, so it stays put while the rows
+        scroll — the same reason the board's column header is a sibling of its
+        scroller rather than `sticky` inside it.
+      */}
+      <div className="flex shrink-0 flex-col gap-2 px-3 py-3 md:px-6 md:pt-4">
+        {composing ? (
+          /*
+            Capped width above `md`: a full-bleed input across a wide table
+            reads as a filter over the columns rather than as one new row.
+          */
+          <div className="md:max-w-sm">
+            <Input
+              label="New task"
+              labelHidden
+              autoFocus
+              inputSize="sm"
+              value={newTitle}
+              placeholder="Task title"
+              onChange={(event) => {
+                setNewTitle(event.target.value);
+              }}
+              onBlur={submitNewTask}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitNewTask();
+                }
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setNewTitle("");
+                  setComposing(false);
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <div>
+            {/*
+              Disabled rather than hidden, with the reason stated once per
+              surface by `ReadOnlyNotice` above rather than repeated on every
+              control (Requirement 17.2).
+            */}
+            <Button
+              icon={Plus}
+              size="sm"
+              disabled={!table.canEdit}
+              onClick={() => {
+                setComposing(true);
+              }}
+            >
+              New task
+            </Button>
+          </div>
+        )}
+
+        {/*
+          The sort dropdown replaces the table headers below `md`, offering the
+          identical option set (Requirement 20.6).
+        */}
+        <div className="md:hidden">
+          <Select
+            label="Sort by"
+            value={`${sort.field}:${sort.direction}`}
+            options={SORT_OPTIONS}
+            onChange={(value) => {
+              const [field, direction] = value.split(":");
+
+              setSort({
+                field: field as SortField,
+                direction: direction === "desc" ? "desc" : "asc",
+              });
+              setPage(0);
+            }}
+          />
+        </div>
       </div>
 
       <ScrollShadow className="px-3 py-3 md:px-6 md:py-0">

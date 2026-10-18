@@ -1500,3 +1500,107 @@ boundary. This one has no clip in it at all.
     301 on a 360x560 phone, and the drawer stayed open — so the gesture is not
     being taken by drag-to-dismiss, which is correctly confined to the handle
   - _Requirements: 16.1.5, 20.8_
+
+---
+
+## Phase 25 — Creating from the list view
+
+Two affordances that were simply absent, and both absences had the same shape:
+the capability existed one layer down and the view offered no way to reach it.
+
+A task could be created here **only** through the empty state, so the moment a
+list held one task the affordance vanished and the board became the only place
+to add a second — the view best suited to typing several tasks in a row was the
+one that could not. And a subtask could be created only from the drawer, even
+though this table has nested, disclosed and inline-edited subtasks since
+Phase 6. Three surfaces could _edit_ a subtask (task 30); none but the drawer
+could _make_ one.
+
+- [x] 48. A create-task button above the list
+- [x] 48.1 Put it in a toolbar outside the scroller
+  - Above the rows and outside `ScrollShadow`, so it stays put while they
+    scroll — the same reason the board's column header is a sibling of its
+    scroll container rather than `sticky` inside it
+  - Reuses the empty state's existing `composing`/`newTitle` state and
+    `submitNewTask`, so there is one composer for this view rather than two
+    that drift. The empty state's action is untouched and is still the primary
+    one while there is nothing to show
+  - Composer idiom matched to `KanbanColumn` and `SubtaskList`: Enter commits,
+    Escape abandons, blur commits, and the button returns afterwards ready for
+    the next one
+  - Capped at `md:max-w-sm` when composing. A full-bleed input across a wide
+    table reads as a filter over the columns rather than as one new row
+  - Disabled rather than hidden without permission, with `ReadOnlyNotice`
+    stating the reason once for the surface (Requirement 17.2)
+  - _Requirements: 5.9, 5.10, 5.10.1, 17.2_
+
+- [x] 49. Add a subtask from the row that will parent it
+- [x] 49.1 Add `onCreateSubtask(parentTaskId, title)` to `useTaskTable`
+  - **Takes the parent's id, and that is the whole point.** `useTaskDrawer` can
+    bind `onAddSubtask` to the open task because there is only ever one of
+    those. This view has every task in the list on screen, so a bound callback
+    would not error — it would file the subtask under whichever task the hook
+    captured, which is a silent wrong-parent write rather than a refusal. Same
+    shape and same reasoning as `onSubtaskUpdate` in task 42.1
+  - No new Controller action needed: `taskSlice.create` already accepts
+    `parentTaskId` and already runs `validateSubtaskDepth` and
+    `validateSubtaskList`, so depth and the same-list invariant are enforced
+    below this regardless of what a view offers
+  - `listId` is the selected list rather than a lookup from the parent, because
+    every row here belongs to it and a subtask must live in its parent's list
+    anyway
+  - _Requirements: 5.11, 5.11.1, 2.7, 2.11_
+- [x] 49.2 Render it in both forms, from one shared handler
+  - Added to `TaskListView`'s `inlineHandlers`, which both `TaskTable` and
+    `TaskCardList` already spread — so the two forms cannot end up with subtly
+    different create behaviour, which is the reason that object exists
+  - Keyed by the **parent** in `usePendingAction`, so the row that sprouts the
+    subtask is the row that dims. The new subtask has no id to key by yet,
+    which is the one case where keying by the acted-on row rather than the
+    changed row is the honest choice
+  - Composer state is local to each form, matching `KanbanColumn` and
+    `SubtaskList`. Held as a parent **id rather than a boolean**, because every
+    task is on screen: a flag would open a composer under every row and leave
+    the commit guessing at a parent. Expansion stays lifted to the view, for
+    the reason task 28.5 records — a card remounts mid-drag and loses local
+    state; a composer has no equivalent hazard
+  - The composer sits _after_ the existing subtasks, because `create` appends
+    to its siblings. Above the group would show the row arriving somewhere it
+    is not
+  - In the table it is a `<tr>` with a `colSpan`, indented to sit with the
+    subtask rows rather than the parent
+  - _Requirements: 5.11, 5.11.4, 14.7, 20.6_
+- [x] 49.3 Reveal the group, and refuse the depth the Controller refuses
+  - `startSubtask` expands a collapsed parent first. Without it the new row
+    lands behind a chevron and the click appears to have done nothing —
+    `onToggleExpand` is a toggle, so this has to check before calling rather
+    than calling unconditionally
+  - Offered only where `depth + 1 <= MAX_TASK_DEPTH`, read from the limit and
+    not written as `depth === 0`, so raising the cap deepens the tree without
+    this needing to be found (21.9). Gating it at all is 2.13's principle: a
+    control whose only outcome is a guaranteed error is worse than no control
+  - `TaskTable`'s `tr` gained `group` so the control can reveal on hover and on
+    focus-within, as the drawer's subtask rows already do. `TaskCardList` does
+    not gate on `can-hover` at all — it renders only below `md`, where the
+    pointer is coarse and there is no hover state to reveal anything with
+  - _Requirements: 5.11.2, 5.11.3, 15.1, 20.10, 21.9_
+- [x] 49.4 Test it, and watch each test fail
+  - Five cases in `inlineEditing.test.tsx`, which already had the harness —
+    `switchToList`, `row`, `taskByTitle` and the `ROLE_CAPABILITIES` swap — so
+    this needed no new fixture
+  - The valuable one asserts **both halves**: the clicked row's task gained the
+    subtask _and_ another task on screen gained nothing. That is the assertion
+    49.1's signature exists to make pass, and it would read as redundant to
+    anyone who had not seen the bound-callback failure
+  - jsdom is the right layer here. Correct parenting and permission gating need
+    no geometry, unlike the three invariants in `e2e/`
+  - **Verified by breaking each behaviour in turn** rather than trusted on a
+    green run: widening the depth gate failed exactly the depth case; removing
+    the auto-expand failed the reveal case and the depth case, the latter
+    because it asserts the subtask row is on screen; and binding the create to
+    a fixed parent failed the wrong-parent case with `expected 't-006' to be
+'t-001'` — the precise symptom of the silent bug
+  - Two Storybook hosts needed the new prop, which `tsc` caught rather than a
+    reviewer: both render `TaskTable`/`TaskCardList` directly with explicit
+    props, which is exactly what makes a required prop a useful contract
+  - _Requirements: 5.10, 5.11, 5.11.1, 5.11.2, 5.11.3, 5.11.4, 18.7_

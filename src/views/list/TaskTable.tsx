@@ -1,17 +1,19 @@
-import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react";
-import { Fragment } from "react";
+import { ArrowDown, ArrowUp, ChevronRight, Plus } from "lucide-react";
+import { Fragment, useState } from "react";
 
 import { AssigneePicker } from "@/components/ui/AssigneePicker";
 import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { DueDatePicker } from "@/components/ui/DueDatePicker";
+import { IconButton } from "@/components/ui/IconButton";
 import { InlineTextField } from "@/components/ui/InlineTextField";
+import { Input } from "@/components/ui/Input";
 import { PriorityPicker } from "@/components/ui/PriorityPicker";
 import {
   StatusPicker,
   type StatusPickerOption,
 } from "@/components/ui/StatusPicker";
-import { MAX_TITLE_LEN } from "@/config/limits";
+import { MAX_TASK_DEPTH, MAX_TITLE_LEN } from "@/config/limits";
 import type { Priority } from "@/config/priorities";
 import type { TaskRowViewModel } from "@/controllers/hooks/useTaskTable";
 import { cn } from "@/lib/cn";
@@ -39,6 +41,7 @@ export interface TaskTableProps {
   readonly onSetPriority: (taskId: string, priority: Priority) => void;
   readonly onSetDueDate: (taskId: string, dueDate: string | null) => void;
   readonly onToggleAssignee: (taskId: string, userId: string) => void;
+  readonly onCreateSubtask: (parentTaskId: string, title: string) => void;
 }
 
 /** Sort direction as `aria-sort` expects it, so the header speaks its state. */
@@ -85,10 +88,58 @@ export function TaskTable({
   onSetPriority,
   onSetDueDate,
   onToggleAssignee,
+  onCreateSubtask,
 }: TaskTableProps) {
+  /*
+   * Which row's subtask composer is open, by parent id — not a boolean. Every
+   * task in the list is on screen at once here, so a flag would open a
+   * composer under every row and leave the commit guessing at a parent. The
+   * drawer and the board column can each keep a boolean because each has
+   * exactly one thing to add to.
+   *
+   * Local to the table rather than lifted to the view, matching
+   * `KanbanColumn` and `SubtaskList`, both of which own their own composer
+   * state. Expansion is lifted because a card remounts mid-drag and would lose
+   * it; a composer has no equivalent hazard.
+   */
+  const [composingFor, setComposingFor] = useState<string | null>(null);
+  const [subtaskTitle, setSubtaskTitle] = useState("");
+
+  function submitSubtask(parentTaskId: string) {
+    const trimmed = subtaskTitle.trim();
+
+    setSubtaskTitle("");
+    setComposingFor(null);
+
+    if (trimmed.length > 0) onCreateSubtask(parentTaskId, trimmed);
+  }
+
+  function startSubtask(parentTaskId: string, isExpanded: boolean) {
+    /*
+     * Reveal the group first, or the new subtask lands behind a collapsed
+     * chevron and the click appears to have done nothing. `onToggleExpand` is
+     * a toggle, so this has to check before calling it rather than calling it
+     * unconditionally.
+     */
+    if (!isExpanded) onToggleExpand(parentTaskId);
+
+    setSubtaskTitle("");
+    setComposingFor(parentTaskId);
+  }
+
   function renderRow(row: TaskRowViewModel, depth: number) {
     const isExpanded = expandedIds.has(row.task.id);
     const hasSubtasks = row.subtasks.length > 0;
+    /*
+     * Resolved from the depth limit rather than `depth === 0`, so raising
+     * `MAX_TASK_DEPTH` deepens the tree without this having to be found and
+     * rewritten (Requirement 21.9).
+     *
+     * Gating it at all is Requirement 2.13's principle: the Controller refuses
+     * a subtask of a subtask, and a control whose only outcome is a guaranteed
+     * error is worse than no control.
+     */
+    const canHaveSubtasks = depth + 1 <= MAX_TASK_DEPTH;
 
     return (
       // The key belongs on the outermost element returned from the map, which
@@ -116,7 +167,9 @@ export function TaskTable({
             onOpen(row.task.id);
           }}
           className={cn(
-            "cursor-pointer border-b border-border",
+            // `group` so the add-subtask control can reveal on hover and on
+            // focus-within, as the card and drawer rows already do.
+            "group cursor-pointer border-b border-border",
             "transition-colors motion-reduce:transition-none",
             "can-hover:hover:bg-surface-hover",
             // Subdued at the row that was acted on (Requirement 14.7).
@@ -201,6 +254,45 @@ export function TaskTable({
                   }}
                 />
               </span>
+
+              {/*
+                Adding a subtask from the row that will parent it, so the
+                target is never in doubt — the drawer could already do this,
+                but only after opening the task, and the table has nested and
+                edited subtasks since it was built without being able to make
+                one (Requirement 5.7).
+
+                Revealed on hover or focus-within where a pointer can hover,
+                and persistently visible otherwise. An `opacity-0` button is
+                still focusable, so tabbing into the row brings it back
+                (Requirement 15.1, 20.10).
+              */}
+              {canHaveSubtasks && (
+                <span
+                  className={cn(
+                    "shrink-0",
+                    "can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100",
+                  )}
+                >
+                  <IconButton
+                    icon={Plus}
+                    label={`Add subtask to ${row.task.title}`}
+                    size="xs"
+                    disabled={!canEdit}
+                    onClick={(event) => {
+                      /*
+                       * The row's own handler already ignores events from
+                       * `button` descendants, so this is belt-and-braces
+                       * rather than load-bearing — but the composer opening
+                       * *and* the drawer opening over it would be a confusing
+                       * way to find out if that ever changed.
+                       */
+                      event.stopPropagation();
+                      startSubtask(row.task.id, isExpanded);
+                    }}
+                  />
+                </span>
+              )}
             </div>
           </td>
 
@@ -266,6 +358,47 @@ export function TaskTable({
         */}
         {isExpanded &&
           row.subtasks.map((subtask) => renderRow(subtask, depth + 1))}
+
+        {/*
+          The composer sits *after* the existing subtasks because that is where
+          the new one will land — `create` appends to its siblings. Putting it
+          above the group would show the row arriving somewhere it is not.
+        */}
+        {composingFor === row.task.id && (
+          <tr className="border-b border-border">
+            <td colSpan={COLUMNS.length} className="px-3 py-2">
+              {/* Indented to sit with the subtask rows, not the parent. */}
+              <div className="max-w-sm pl-6">
+                <Input
+                  label={`New subtask in ${row.task.title}`}
+                  labelHidden
+                  autoFocus
+                  inputSize="sm"
+                  value={subtaskTitle}
+                  placeholder="Subtask title"
+                  onChange={(event) => {
+                    setSubtaskTitle(event.target.value);
+                  }}
+                  onBlur={() => {
+                    submitSubtask(row.task.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitSubtask(row.task.id);
+                    }
+
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setSubtaskTitle("");
+                      setComposingFor(null);
+                    }
+                  }}
+                />
+              </div>
+            </td>
+          </tr>
+        )}
       </Fragment>
     );
   }

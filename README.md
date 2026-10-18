@@ -498,18 +498,18 @@ Two others existed and were retired, which is worth recording so neither comes b
 ## Testing
 
 ```bash
-npm run test        # 666 unit tests, 35 files
+npm run test        # 671 unit tests, 35 files
 npm run test:e2e    # 94 cases across 12 spec files, 2 browser projects
 npm run coverage    # Model + Controller + config
 ```
 
-Coverage over the three layers that hold logic — **91.91% statements, 82.53% branches**:
+Coverage over the three layers that hold logic — **91.92% statements, 82.44% branches**:
 
 | Area                    | Statements | Branches |
 | ----------------------- | ---------- | -------- |
 | `src/config`            | 95.50%     | 92.10%   |
 | `src/controllers`       | 91.42%     | 91.30%   |
-| `src/controllers/hooks` | 92.04%     | 70.00%   |
+| `src/controllers/hooks` | 92.09%     | 69.64%   |
 | `src/model`             | 88.60%     | 82.26%   |
 
 The View is **excluded from the measurement on purpose.** Its tests assert behaviour through the real shell, and counting their lines would measure how much JSX a test happened to render rather than what it proved.

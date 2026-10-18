@@ -1,15 +1,20 @@
+import { Plus } from "lucide-react";
+import { useState } from "react";
+
 import { AssigneePicker } from "@/components/ui/AssigneePicker";
 import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { DueDatePicker } from "@/components/ui/DueDatePicker";
+import { IconButton } from "@/components/ui/IconButton";
 import { InlineTextField } from "@/components/ui/InlineTextField";
+import { Input } from "@/components/ui/Input";
 import { PriorityPicker } from "@/components/ui/PriorityPicker";
 import {
   StatusPicker,
   type StatusPickerOption,
 } from "@/components/ui/StatusPicker";
-import { MAX_TITLE_LEN } from "@/config/limits";
+import { MAX_TASK_DEPTH, MAX_TITLE_LEN } from "@/config/limits";
 import type { Priority } from "@/config/priorities";
 import type { TaskRowViewModel } from "@/controllers/hooks/useTaskTable";
 import { cn } from "@/lib/cn";
@@ -31,6 +36,7 @@ export interface TaskCardListProps {
   readonly onSetPriority: (taskId: string, priority: Priority) => void;
   readonly onSetDueDate: (taskId: string, dueDate: string | null) => void;
   readonly onToggleAssignee: (taskId: string, userId: string) => void;
+  readonly onCreateSubtask: (parentTaskId: string, title: string) => void;
 }
 
 /**
@@ -57,8 +63,25 @@ export function TaskCardList({
   onSetPriority,
   onSetDueDate,
   onToggleAssignee,
+  onCreateSubtask,
 }: TaskCardListProps) {
+  /* By parent id, not a boolean — every task in the list is on screen. */
+  const [composingFor, setComposingFor] = useState<string | null>(null);
+  const [subtaskTitle, setSubtaskTitle] = useState("");
+
+  function submitSubtask(parentTaskId: string) {
+    const trimmed = subtaskTitle.trim();
+
+    setSubtaskTitle("");
+    setComposingFor(null);
+
+    if (trimmed.length > 0) onCreateSubtask(parentTaskId, trimmed);
+  }
+
   function renderRow(row: TaskRowViewModel, depth: number) {
+    /* From the limit, not `depth === 0` (Requirement 21.9). */
+    const canHaveSubtasks = depth + 1 <= MAX_TASK_DEPTH;
+
     return (
       <div key={row.task.id} className={cn(depth > 0 && "ml-4")}>
         <Card
@@ -114,10 +137,32 @@ export function TaskCardList({
                   row.task.isComplete && "text-ink-400 line-through",
                 )}
                 onCommit={(next) => {
-                  if (next.trim().length > 0) onRename(row.task.id, next.trim());
+                  if (next.trim().length > 0)
+                    onRename(row.task.id, next.trim());
                 }}
               />
             </span>
+
+            {/*
+              No `can-hover` gating: this form only renders below `md`, where
+              the pointer is coarse and there is no hover state to reveal
+              anything with (Requirement 20.10).
+            */}
+            {canHaveSubtasks && (
+              <span className="-mt-1 shrink-0">
+                <IconButton
+                  icon={Plus}
+                  label={`Add subtask to ${row.task.title}`}
+                  size="xs"
+                  tooltip={false}
+                  disabled={!canEdit}
+                  onClick={() => {
+                    setSubtaskTitle("");
+                    setComposingFor(row.task.id);
+                  }}
+                />
+              </span>
+            )}
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -170,6 +215,42 @@ export function TaskCardList({
         {row.subtasks.length > 0 && (
           <div className="mt-2 flex flex-col gap-2">
             {row.subtasks.map((subtask) => renderRow(subtask, depth + 1))}
+          </div>
+        )}
+
+        {/*
+          After the existing subtasks, which is where `create` appends the new
+          one. Outside the parent's `Card` so it is not a control inside a
+          clickable card that opens a drawer.
+        */}
+        {composingFor === row.task.id && (
+          <div className="mt-2 ml-4">
+            <Input
+              label={`New subtask in ${row.task.title}`}
+              labelHidden
+              autoFocus
+              inputSize="sm"
+              value={subtaskTitle}
+              placeholder="Subtask title"
+              onChange={(event) => {
+                setSubtaskTitle(event.target.value);
+              }}
+              onBlur={() => {
+                submitSubtask(row.task.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitSubtask(row.task.id);
+                }
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSubtaskTitle("");
+                  setComposingFor(null);
+                }
+              }}
+            />
           </div>
         )}
       </div>
