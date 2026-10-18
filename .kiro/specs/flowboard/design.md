@@ -1686,6 +1686,39 @@ The column width alone was not enough, which is the part worth remembering: it t
 
 **Measured at every width, not just the floor.** The bug affected 320, 360, 414 and 640 — every phone and small-tablet width — and correctly did not affect 768 and up, where the board's content fits. `e2e/responsive.spec.ts` asserts it across that range, attempting the scroll rather than comparing `scrollWidth` to `clientWidth`, because a fractional device ratio puts a sub-pixel difference into those numbers that is not a scroll. It also asserts the two things that would let the fix be satisfied dishonestly: that the board's own track still scrolls, and that a column fits inside 320px. Verified by reverting the fix, which failed six of the twelve cases with the overflow in the message.
 
+### The fourth member of the family, and the one with no clip at all
+
+The three above are all about an element escaping or being caught by an `overflow` boundary. This one is the same _shape_ of defect — correct components, broken relationship, invisible to the whole unit suite — with a different mechanism: **a percentage height resolves against the containing block, and where that block's height is indefinite the percentage is dropped and the element sizes itself to its content instead.**
+
+Reported as "scrolling is not working in the task drawer on mobile". `ScrollShadow` sized its scroller with `h-full`, i.e. `height: 100%`, inside a parent that is itself a flex item. Whether that parent's height was definite turned out to depend on the _caller_:
+
+| Drawer form        | Panel positioning                          | Height      | `h-full` resolved?                        |
+| ------------------ | ------------------------------------------ | ----------- | ----------------------------------------- |
+| Panel, `md` and up | `md:inset-y-0` — both edges anchored       | Definite    | Yes. No bug, and none ever reported       |
+| Sheet, below `md`  | `bottom-0` + `max-h-[92dvh]`, **no `top`** | Auto-capped | No. Fell back to the content's own height |
+
+So the scroller became as tall as its content. The consequence is the part worth remembering, because it is counter-intuitive: a scroll container sized to its own content has `scrollHeight === clientHeight`, which means **it has no overflow at all** and `overflow-y: auto` has nothing to act on. The content was not scrollable-but-stuck; there was genuinely nothing to scroll, and the excess was clipped by the panel while the footer painted over the difference.
+
+Measured rather than inferred, at three viewports, which is also what established that it was form-dependent and not simply "the drawer is broken":
+
+```
+Desktop 1440x900 — slot 798, scroller 798, overflow   0, overhang   0   ← correct
+Pixel 7  412x839 — slot 622, scroller 662, overflow   0, overhang  40
+Phone    360x560 — slot 365, scroller 666, overflow   0, overhang 301
+```
+
+Note the scroller's height barely moves across the three while its slot collapses from 798 to 365. That is the tell: it was tracking the content, not the space. Confirmed from the other side too — `scrollTop` was assigned `100000` and read back `0`.
+
+The fix is to stop expressing the height as a percentage. `ScrollShadow`'s wrapper becomes a flex column and the scroller becomes `flex-1 min-h-0`, so the flex algorithm sizes it from the parent's _used_ height and `min-h-0` lets it shrink below its content — which is what creates the overflow there is then something to scroll. There is no percentage, so there is nothing to drop, and no dependency on an ancestor chain the component cannot see.
+
+Three things worth keeping:
+
+- **The flex-column wrapper is the load-bearing half**, not the `flex-1`. Established by reverting in two stages rather than assumed: with the wrapper left as a flex column, even the original `h-full` passed, because a flex item's height is resolved by the flex algorithm. `flex-1 min-h-0` is kept regardless, since it states the intent directly instead of relying on a percentage that happens to be well-defined.
+- **`overscroll-contain` was added with it.** The sheet sits over the board, so a flick continuing past either end chained to the board and scrolled it underneath the sheet the user was reading.
+- **This is a design-system fix, not a drawer fix.** `ScrollShadow` has four consumers, and each one depended on an invisible precondition about its own ancestors. The sidebar and list view happened to satisfy it, because the shell is `h-dvh` and their chains are definite — so they were correct by luck rather than by construction. All four were measured after the change: every one sized to its slot exactly, overhang zero.
+
+**Not testable in jsdom**, for the same reason as the two above: no CSS, no layout, so neither the percentage resolution nor `scrollHeight` exists there. `e2e/drawer-scroll.spec.ts` asserts it in both forms as a measured relationship — that a body which overflows scrolls to the end of its content, and that its box does not extend past its slot or under its footer — with an explicit precondition that the content _does_ overflow at the test viewport, so the assertions cannot pass vacuously if the seed or viewport changes. Verified by reverting: the sheet cases failed with `overflow: 0` and a 193px overhang, while the panel case passed, which is exactly the asymmetry the table above describes.
+
 ### Loading and feedback
 
 | Trigger                   | Treatment                                                                |
@@ -1814,13 +1847,13 @@ What those stubs buy is that the board mounts and the keyboard path runs. They d
 
 **End-to-end** — Playwright, two projects: `chromium` at desktop width and `mobile` on a Pixel 7 descriptor, which is not a redundant viewport because below `lg` the sidebar renders a focus-trapping `Drawer` instead of a static `aside` — a DOM difference, not a CSS one. The suite runs against `vite preview` on the production build, so it exercises what ships, with the clock pinned to `SEED_NOW` and the timezone matched to the unit suite.
 
-Eleven spec files, 88 cases. What each buys that jsdom cannot:
+Twelve spec files, 94 cases. What each buys that jsdom cannot:
 
 - `drag-drop`, `tree-drag`, `failure-rollback` — real layout, so collision detection actually runs. jsdom reports every rect as zero, which is how four separate cross-column faults reached a green suite.
 - `touch-drag` — the **discrimination** Requirement 20.8 is about. One `PointerSensor` serves every pointer type and resolves its constraint from `event.pointerType`, so the same 260px of travel must page the board after a 30ms press and drag a card after a 400ms one. The two quick-swipe specs are the ones that would catch a regression: a suite proving only that dragging works would pass with the activation delay removed, which is exactly the state that makes the mobile board unusable. `page.touchscreen` offers only `tap()`, so the gestures are dispatched through CDP.
 - `permissions` — the flow the brief singles out twice. Asserted by switching user and comparing the whole tree as `"{level}:{name}"` strings, never by reading grant rows from storage: a spec that inspected storage would pass with a sidebar rendering the wrong thing.
 - `drawer`, `navigation`, `persistence`, `smoke` — focus trapping, selection, survival across a reload, and a boot with no console errors.
-- `focus-ring`, `responsive` — the two geometry invariants. Both need computed styles and real rects, so both are structurally impossible in jsdom; both assert a _measured_ relationship rather than a literal number, so changing either side of it keeps the test meaningful; and both were verified by reverting their fix rather than trusted on a green run.
+- `focus-ring`, `responsive`, `drawer-scroll` — the three geometry invariants. All need computed styles and real rects, so all are structurally impossible in jsdom; each asserts a _measured_ relationship rather than a literal number, so changing either side of it keeps the test meaningful; and each was verified by reverting its fix rather than trusted on a green run. `drawer-scroll` additionally asserts its own precondition — that the drawer body really does overflow at the test viewport — because the failure it guards against is an absence of overflow, and a spec that lost the overflow would otherwise pass while testing nothing.
 
 Two documented skips, both so a behaviour is covered on one project rather than fudged on both: pointer drag does not run on mobile, and the two dialog-driven access specs do not either. The second has a cause worth recording — Chromium's mobile emulation reports `innerWidth` 788 against a `clientWidth` and `visualViewport.width` of 412, so `Dialog`'s `fixed inset-0 flex items-end` wrapper lays its panel out against a box roughly 1.9× the visible viewport and the footer lands near y=1533 in an area 839 tall. Media queries read the real width, so the app's phone layout is correct; it is the emulated containing block that is not. Established as emulation rather than a bug by counting one wrapper and one button with the dialog open, and by both flows passing on chromium.
 
@@ -1854,6 +1887,8 @@ Landed, 37 cases green across both projects, stable over repeat runs:
 - `tree-drag.spec.ts` — the sidebar's drag, which had no coverage in any layer: there is no `SidebarTree.test.tsx`, and `dragDrop.test.ts` is the board's. Covers all three of `handleDragEnd`'s branches — a sibling reorder, a reparent into a folder, and the refusal when neither the target nor its parent can hold the dragged type. Depth is read from `aria-level`, which is what distinguishes a reparent from a reorder. Note the tree renders no `DragOverlay`, so dnd-kit's feedback plugin clones the dragged row into the DOM and a refused drop leaves that clone in the tree until the return animation finishes — these assertions poll for that reason, not out of habit.
 - `drawer.spec.ts` — the off-canvas navigation, also previously unmentioned by any test. Focus enters the panel, stays inside across twelve tabs, returns to the trigger on Escape, and a selection closes the drawer. Unreachable in jsdom twice over: the sidebar's form is decided by `matchMedia`, which the setup stubs to desktop, and a focus trap needs a real focus implementation. One wrinkle worth knowing — `Drawer` puts `aria-label` on Headless UI's `Dialog`, which renders a zero-size wrapper, so the role-named element is never `toBeVisible`; "is it open" has to ask about something inside the `DialogPanel`.
 - `failure-rollback.spec.ts` — the rollback promise through the gesture it was written for. `rollback.test.ts` and `views/rollback.test.tsx` both already cover it, but both reach the mutation through the "Move down" menu item, because a drag cannot be performed in jsdom. These arm the dev panel's one-shot failure, drag, and assert the card returns, the toast offers a retry, the retry succeeds, and — only observable with a reload — that the rollback wrote again to undo what `autoPersist` had already saved on the optimistic apply.
+
+- `drawer-scroll.spec.ts` — that the task drawer's body scrolls when it overflows, in **both** of its responsive forms. The fault it was written for existed only in the sheet form, because whether the body's percentage height resolved depended on the panel's positioning; so the panel case is here specifically to stop the sheet being fixed by breaking the panel. Each case asserts its own precondition — that the content really does overflow at the test viewport — because the symptom is an _absence_ of overflow, and a spec that lost it would pass while proving nothing.
 
 Three things the browser specs state that nothing else can. The live preview: mid-drag, with the button still held, the card has already left one column and joined the other, because the board mirrors the move into React state during `onDragOver` — which is not cosmetic, it is what makes dnd-kit's `OptimisticSortingPlugin` stand down instead of calling `insertAdjacentElement` and leaving React to crash on `removeChild`. The 8px activation constraint, which is why `locator.dragTo()` is not used: `e2e/helpers/drag.ts` trips the threshold with a deliberate first move, then traverses in steps, then sends one more event at rest so the last `onDragOver` resolves before release. And that the overlay clone is inert — it carries the title as an `aria-label` but gets no `role`, so it is not a second interactive copy of the card for assistive tech.
 

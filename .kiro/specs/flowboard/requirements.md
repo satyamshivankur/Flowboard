@@ -243,6 +243,10 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 7.1. Opening a task SHALL present a drawer overlaying the main content, built on the Headless UI `Dialog` primitive. At viewports below `48rem` it SHALL present as a full-height bottom sheet; at `48rem` and above it SHALL present as a right-side panel. Requirement 20 governs the responsive form; this requirement governs the content and behaviour, which are identical in both forms.
 
+7.1.1. "Identical behaviour in both forms" SHALL include the drawer's body being scrollable when its content overflows. The drawer has a fixed header and a fixed footer with a scrolling region between them, and that region SHALL be scrollable in the sheet form as well as the panel form, per Requirement 16.1.1.
+
+The two forms differ in a way that makes this a real risk rather than a formality: the panel anchors both its top and bottom edges, giving it a definite height, while the sheet anchors only its bottom and caps itself with a maximum height, giving it an auto height. A body sized as a percentage of that height therefore resolves correctly in the panel and silently falls back to its content height in the sheet — so the sheet cannot scroll, and the overflow is hidden behind the footer. The content and behaviour are only identical if the body's height is constrained by its container rather than by a percentage.
+
 7.2. The drawer SHALL close on Escape, on overlay click, and on an explicit close button.
 
 7.3. WHEN the drawer opens, THEN focus SHALL move into the drawer and SHALL be trapped within it. WHEN the drawer closes, THEN focus SHALL return to the element that opened it.
@@ -604,6 +608,16 @@ The main axis SHALL NOT be shifted because doing so detaches the overlay from th
 ### Acceptance criteria
 
 16.1. The layout SHALL fill the viewport height with independent scroll regions for the sidebar, the board columns and the task table. The page itself SHALL NOT scroll vertically.
+
+16.1.1. A scroll region SHALL be sized by the space its container gives it, never by a **percentage of an ancestor whose own height may be indefinite**. A percentage height resolves against the containing block, and where that block's height is indefinite the percentage is dropped and the element falls back to sizing itself to its content. A scroll container sized to its own content has `scrollHeight === clientHeight` — so it has no overflow to scroll, its content is clipped by an ancestor instead, and everything past the fold is unreachable. Declaring `overflow-y: auto` is therefore not sufficient to make a region scrollable; the height has to be constrained by something other than the content.
+
+16.1.2. Where such a region is a flex item, it SHALL be sized by the flex algorithm — a flex basis with a zero minimum on the main axis — rather than by a percentage. The flex algorithm resolves against the parent's _used_ height and permits shrinking below the content, which is what creates the overflow there is then something to scroll. This has no indefinite-ancestor failure mode, so it SHALL be preferred wherever both would work.
+
+16.1.3. This SHALL be verified in a real browser and asserted as a **measured relationship** — that a region which overflows can be scrolled to the end of its content, and that its box does not extend past the space its container gave it — rather than against literal pixel values, so changing a viewport or the seed content keeps the check meaningful. It cannot be verified in jsdom, which loads no CSS and lays nothing out, so neither percentage resolution nor `scrollHeight` exists there.
+
+16.1.4. A region's scrollability SHALL NOT be assumed uniform across viewports. Whether an ancestor's height is definite can differ between a surface's responsive forms, so one component can be correct at one width and broken at another with no conditional in its own source. This is the same class of defect as the overflow-clipped overlay (13.4.1), the clipped focus ring (14.8.1) and the escaping containing block (20.2.2): in each, both components are correct read in isolation and the fault lives in the relationship between them.
+
+16.1.5. A scroll region inside an overlay SHALL contain its overscroll, so that a gesture continuing past either end does not chain to the surface behind it. A bottom sheet sits over the board, and chaining there scrolls the board underneath the sheet the user is reading.
 
 16.2. At viewports of `64rem` and above the sidebar SHALL collapse to an icon rail, with the collapsed state persisted for the session. Its width SHALL be fixed per state rather than resizable, per 6.6. Below `64rem` the sidebar SHALL instead behave as specified in Requirement 20.
 

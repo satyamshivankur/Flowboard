@@ -1395,3 +1395,108 @@ was `sr-only`, which nobody thinks about at all.
   - Requirement 20.2.2 now states the containing-block rule directly, alongside 13.4.1 (the tooltip) and 14.8.1 (the focus ring), because this is the third time one CSS rule has produced a bug that looked like three unrelated ones
   - The shared tell, worth more than any of the three fixes: **the styling of both components was correct in isolation and the defect lived in the relationship between them.** None of the three is findable by reading either file
   - _Requirements: 13.4.1, 14.8.1, 20.2.2_
+
+---
+
+## Phase 24 — The drawer's body would not scroll on a phone
+
+Reported, not found by a test: in the task drawer's mobile bottom-sheet form,
+content past the fold was unreachable. The desktop panel was fine and always
+had been, which is the detail that makes this interesting — one component, no
+conditional in its own source, correct at one width and broken at another.
+
+Fourth member of the family recorded in Phases 4, 16, 22 and 23: **both
+components are correct read in isolation and the fault lives in the
+relationship between them.** The first three were all about an `overflow`
+boundary. This one has no clip in it at all.
+
+- [x] 47. Make `ScrollShadow` size itself from its container, not from a percentage
+- [x] 47.1 Measure it in three forms before changing anything
+  - `ScrollShadow`'s scroller was `h-full` — `height: 100%` — inside a parent
+    that is itself a flex item. A percentage height resolves against the
+    containing block, and where that block's height is **indefinite** the
+    percentage is dropped and the element sizes itself to its **content**
+  - Whether the chain was definite depended on the caller, which is the whole
+    bug: the drawer's desktop panel is `md:inset-y-0`, both edges anchored, so
+    the height is definite and the percentage resolved. The mobile sheet is
+    `bottom-0` with `max-h-[92dvh]` and no `top`, so the height is auto-capped
+    rather than definite
+  - Driven in a real browser with computed styles and rects:
+
+    ```
+    Desktop 1440x900 — slot 798, scroller 798, overflow   0, overhang   0  ← correct
+    Pixel 7  412x839 — slot 622, scroller 662, overflow   0, overhang  40
+    Phone    360x560 — slot 365, scroller 666, overflow   0, overhang 301
+    ```
+
+  - The tell is that the scroller's height barely moves while its slot
+    collapses from 798 to 365 — it was tracking content, not space. Confirmed
+    from the other side by assigning `scrollTop = 100000` and reading back `0`
+  - **The counter-intuitive part, worth keeping:** this was not
+    scrollable-but-stuck. A scroll container sized to its own content has
+    `scrollHeight === clientHeight`, so there is _no overflow at all_ and
+    `overflow-y: auto` has nothing to act on. The excess was clipped by the
+    panel and the footer painted over the difference
+  - _Requirements: 7.1.1, 16.1.1, 16.1.4_
+
+- [x] 47.2 Replace the percentage with flex sizing
+  - Wrapper `relative min-h-0 flex-1` → `relative flex min-h-0 flex-1 flex-col`;
+    scroller `h-full` → `min-h-0 flex-1`. The flex algorithm sizes the item from
+    the parent's _used_ height and `min-h-0` lets it shrink below its content,
+    which is what creates the overflow there is then something to scroll. No
+    percentage, so nothing to drop, and no dependency on an ancestor chain the
+    component cannot see
+  - **The flex-column wrapper is the load-bearing half**, established by
+    reverting in two stages rather than assumed: with the wrapper left as a flex
+    column, even the original `h-full` passed, because a flex item's height is
+    resolved by the flex algorithm. `flex-1 min-h-0` is kept anyway — it states
+    the intent directly instead of relying on a percentage that happens to be
+    well-defined, which is the condition that silently failed here once already
+  - Added `overscroll-contain` with it. The sheet sits over the board, so a
+    flick past either end chained and scrolled the board underneath the sheet
+    the user was reading
+  - _Requirements: 16.1.2, 16.1.5_
+- [x] 47.3 Fix it in the primitive, not in the drawer
+  - The drawer's own layout was already correct — `shrink-0` header and footer
+    around a `flex-1 min-h-0` slot. The defective sizing was one level down, in
+    a shared primitive with four consumers, each depending on an invisible
+    precondition about its own ancestors
+  - The sidebar and the list view happened to satisfy it, because the shell is
+    `h-dvh` and their chains are definite — **correct by luck rather than by
+    construction**, which is exactly the state that produces a bug report on
+    the fifth consumer. All four were re-measured after the change: every one
+    sizes to its slot exactly, overhang zero, no console errors
+  - Deliberately _not_ fixed by giving the sheet a definite `h-[92dvh]`. That
+    would have worked and would have left the primitive still carrying the
+    trap, while also forcing every sheet to full height instead of hugging a
+    short task's content
+  - _Requirements: 16.1.1, 16.1.2_
+- [x] 47.4 Hold it with a browser spec, and watch it fail
+  - `e2e/drawer-scroll.spec.ts`, 3 cases × 2 projects. Impossible in jsdom for
+    the third time in this file: no CSS and no layout, so neither percentage
+    resolution nor `scrollHeight` exists there
+  - Both halves of the fault are asserted, because they are two things: that an
+    overflowing body scrolls to the end of its content, and that its box does
+    not extend past its slot or under its footer. Measured relationships, never
+    literals, so a viewport or seed change keeps them meaningful
+  - Each case asserts its **own precondition** — that the content really does
+    overflow at the test viewport. The symptom here is an _absence_ of
+    overflow, so a spec that lost the overflow would pass while proving
+    nothing, which is the one way this regression test could stop working
+    without ever going red
+  - The panel case exists to stop the sheet being fixed by breaking the panel
+  - **Verified by reverting, and the first attempt at reverting was wrong** —
+    restoring only `h-full` while leaving the wrapper as a flex column, which
+    still passed. A faithful revert of both lines failed the two sheet cases
+    with `overflow: 0` and a 193px overhang while the panel case passed, which
+    is exactly the asymmetry 47.1 measured
+  - _Requirements: 16.1.3, 7.1.1_
+- [x] 47.5 Verify the gesture, not just the geometry
+  - Geometry being right does not prove a finger can scroll it: the sheet is a
+    Headless UI `Dialog`, which locks scrolling, and the drag-to-dismiss
+    handler sits in the same panel
+  - Driven as a real touch stream over CDP rather than a mouse wheel: a flick
+    inside the body reached 40 of 40 available pixels on a Pixel 7 and 279 of
+    301 on a 360x560 phone, and the drawer stayed open — so the gesture is not
+    being taken by drag-to-dismiss, which is correctly confined to the handle
+  - _Requirements: 16.1.5, 20.8_

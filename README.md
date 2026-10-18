@@ -362,6 +362,32 @@ cn("px-3", "pl-9"); // → "px-3 pl-9"  both kept
 
 `Input` shipped with the first form — its size record contributed `px-3` _after_ a conditional `pl-8` for a leading icon, so the icon padding never reached the DOM and the icon overlapped the text. No error, no type failure, just a silently dropped class. So: a conditional override must appear **after** the base class it overrides, and a size record must not mix a broad property with a directional override of the same property. `Input.test.tsx` asserts the resolved `className` so a reordering cannot regress it unnoticed.
 
+### A scroll region is sized by its container, never by a percentage
+
+This one caused a real bug, and it is worth understanding because the rule is not obvious and the failure is silent.
+
+In CSS, `height: 100%` means "100% of my parent's height". That only works if the parent actually _has_ a height to measure. If the parent's height is decided by its own content instead, the browser cannot resolve the percentage, so it quietly ignores it — and the element falls back to being **as tall as its own content**.
+
+For a scrolling panel, that is fatal in a way that is easy to miss:
+
+> A box that is exactly as tall as its content has nothing sticking out of it. So there is no overflow, and `overflow-y: auto` has nothing to scroll. The content does not become scrollable-but-stuck — it becomes genuinely unreachable, clipped by whatever is around it.
+
+`ScrollShadow` used `h-full` (`height: 100%`), and whether that worked depended on **who was using it**, which is why only one surface broke:
+
+| Drawer form                | How the panel is positioned                      | Did `h-full` work?                     |
+| -------------------------- | ------------------------------------------------ | -------------------------------------- |
+| Side panel (tablet and up) | Pinned to both the top and bottom of the screen  | Yes — its height is a known number     |
+| Bottom sheet (phone)       | Pinned to the bottom only, with a maximum height | No — its height comes from its content |
+
+So on a phone the drawer's body grew to fit its content, ran off the bottom of the sheet, hid the overflow behind the footer, and could not be scrolled. Measured at 360×560: a 365px slot holding a 666px body, with `scrollTop` stuck at 0.
+
+The fix is to let the layout hand the region its size rather than asking for a percentage. The wrapper is a flex column and the scroller is `flex-1 min-h-0`:
+
+- `flex-1` means "take the leftover space in this column" — the space between the fixed header and the fixed footer.
+- `min-h-0` is the part people forget. By default a flex item refuses to shrink below its content, which would reproduce the original bug. This permits it, and shrinking the box below its content is precisely what _creates_ the overflow there is then something to scroll.
+
+No percentage, so there is nothing for the browser to drop, and the component no longer depends on an ancestor it cannot see. Held by `e2e/drawer-scroll.spec.ts`.
+
 ### Token classes are written out in full
 
 Never `bg-${status.color}`. Tailwind resolves classes by scanning source text, so an interpolated name is never seen and the utility is never emitted — no build error, no type error, just unstyled badges at runtime. Complete class strings live in the config beside the token (`PRIORITY_CONFIG[p].classes`, `STATUS_TOKEN_CLASSES[token]`, `AVATAR_TOKEN_CLASSES[token]`), which is also how "identical across kanban cards, list rows and the drawer" is structural rather than a convention.
@@ -473,7 +499,7 @@ Two others existed and were retired, which is worth recording so neither comes b
 
 ```bash
 npm run test        # 666 unit tests, 35 files
-npm run test:e2e    # 88 cases across 11 spec files, 2 browser projects
+npm run test:e2e    # 94 cases across 12 spec files, 2 browser projects
 npm run coverage    # Model + Controller + config
 ```
 
@@ -502,7 +528,9 @@ jsdom loads no CSS and lays nothing out — **every rect is zero**. That is not 
 
 Four separate cross-column drag faults reached a green 516-test suite because of it. So collision detection, the `matchMedia`-driven sidebar form, focus trapping, a real `localStorage` round-trip, touch activation thresholds, focus-ring clearance and the no-horizontal-page-scroll invariant all live in `e2e/`, running against `vite preview` on the production build with the clock pinned to `SEED_NOW`.
 
-The two geometry invariants — `focus-ring.spec.ts` and `responsive.spec.ts` — are worth singling out, because both assert a _measured_ relationship rather than a literal number, so changing either side of it keeps the test meaningful instead of needing an edit. Both were also verified by reverting their fix rather than trusted on a green run: a regression test nobody has seen fail is a regression test nobody has tested.
+The three geometry invariants — `focus-ring.spec.ts`, `responsive.spec.ts` and `drawer-scroll.spec.ts` — are worth singling out, because each asserts a _measured_ relationship rather than a literal number, so changing either side of it keeps the test meaningful instead of needing an edit. Each was also verified by reverting its fix rather than trusted on a green run: a regression test nobody has seen fail is a regression test nobody has tested.
+
+`drawer-scroll.spec.ts` adds one wrinkle worth copying. The bug it guards against is an _absence_ of overflow — a scroll region that had nothing to scroll — so the test also asserts its own precondition, that the drawer's content really does overflow at the test viewport. Without that, a later change to the seed or the viewport would leave the spec passing while proving nothing at all, which is the one way a regression test can stop working without ever going red.
 
 The split is by what each layer can state exactly. `dragDrop.test.ts` owns the drop arithmetic, where an index can be asserted as a number; the browser specs own the gesture, and assert arrival, departure, order preservation and survival across a reload. Asserting the exact landing index in a browser would be asserting geometry, since it depends on which side of a card's centre the pointer was released.
 

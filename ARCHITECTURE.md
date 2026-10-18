@@ -1,6 +1,6 @@
 # Flowboard — extension points
 
-Every closed set in this app is a declaration in `src/config`, and the logic that consumes one reads the declaration rather than restating it. That is what makes the claims below changes to *data* rather than refactors.
+Every closed set in this app is a declaration in `src/config`, and the logic that consumes one reads the declaration rather than restating it. That is what makes the claims below changes to _data_ rather than refactors.
 
 Each section names the seam, the files involved, and the concrete steps. Two worked examples at the end trace what a second workspace and a new view type would actually touch.
 
@@ -21,10 +21,10 @@ export const CONTAINER_REGISTRY: ContainerRegistry = {
     label: "Folder",
     labelPlural: "Folders",
     icon: Folder,
-    childTypes: ["list"],   // what may be created directly inside
-    holdsTasks: false,      // tasks rather than containers
-    grantable: true,        // may carry a permission grant
-    mutable: true,          // may be created, renamed, archived
+    childTypes: ["list"], // what may be created directly inside
+    holdsTasks: false, // tasks rather than containers
+    grantable: true, // may carry a permission grant
+    mutable: true, // may be created, renamed, archived
   },
   // …
 };
@@ -40,15 +40,15 @@ Everything downstream reads it through a helper rather than touching the record:
 
 That is the whole change. Specifically **not** touched:
 
-| Consumer                                 | Why it needs no edit                                      |
-| ---------------------------------------- | --------------------------------------------------------- |
-| `src/model/validation.ts`                | Calls `canContain`, never compares type literals          |
-| `src/views/sidebar/TreeItem.tsx`         | Maps `childTypes` for its create menu; icon and label come from the registry |
-| `src/views/sidebar/SidebarTree.tsx`      | Asks `canContain` whether a drop target is legal          |
-| `src/controllers/slices/containerSlice.ts` | Gates statuses on `holdsTasks` and access on `isGrantableType` |
-| `src/model/hierarchy.ts`                 | Walks `parentId`; depth is computed, not enumerated       |
+| Consumer                                   | Why it needs no edit                                                         |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `src/model/validation.ts`                  | Calls `canContain`, never compares type literals                             |
+| `src/views/sidebar/TreeItem.tsx`           | Maps `childTypes` for its create menu; icon and label come from the registry |
+| `src/views/sidebar/SidebarTree.tsx`        | Asks `canContain` whether a drop target is legal                             |
+| `src/controllers/slices/containerSlice.ts` | Gates statuses on `holdsTasks` and access on `isGrantableType`               |
+| `src/model/hierarchy.ts`                   | Walks `parentId`; depth is computed, not enumerated                          |
 
-**This is tested rather than asserted.** `src/model/registry.test.ts` injects a *synthetic* container type into a test registry and drives validation, reorder and move through it. If any of that logic secretly hard-codes `space`/`folder`/`list`, that test fails — which makes it the most valuable test in the extensibility set, because it is the one that catches a conditional someone added in a hurry.
+**This is tested rather than asserted.** `src/model/registry.test.ts` injects a _synthetic_ container type into a test registry and drives validation, reorder and move through it. If any of that logic secretly hard-codes `space`/`folder`/`list`, that test fails — which makes it the most valuable test in the extensibility set, because it is the one that catches a conditional someone added in a hurry.
 
 The helpers all take an optional registry argument for exactly that reason; they are not welded to the production record.
 
@@ -97,7 +97,7 @@ export const PRIORITY_CONFIG: Record<Priority, PriorityConfig> = {
     label: "Urgent",
     token: "priority-urgent",
     icon: ChevronsUp,
-    rank: 0,                              // what comparators sort on
+    rank: 0, // what comparators sort on
     classes: { text: "…", soft: "…", dot: "…" },
   },
   // …
@@ -124,7 +124,7 @@ export const DEFAULT_STATUS_TEMPLATE: readonly DefaultStatusTemplate[] =
   }));
 ```
 
-`defaultStatusName` is a second field rather than a reuse of `label`, because the label names the *category* in UI that groups by it ("Not started") while this names the *status* a list actually receives ("To do"). Collapsing them would put "Not started" on a kanban column header.
+`defaultStatusName` is a second field rather than a reuse of `label`, because the label names the _category_ in UI that groups by it ("Not started") while this names the _status_ a list actually receives ("To do"). Collapsing them would put "Not started" on a kanban column header.
 
 Because the template is **derived** from the category table, adding a fourth category gives every newly created list a column for it with no second edit — and both the seed fixtures and `containerSlice.create` read this one declaration, so "the default set" has exactly one definition.
 
@@ -146,9 +146,12 @@ The whole authorization policy, as data:
 
 ```ts
 export const ROLE_CAPABILITIES: Record<Role, ReadonlySet<Capability>> = {
-  admin: new Set<Capability>(["workspace:bypass"]),  // bypass implies everything
+  admin: new Set<Capability>(["workspace:bypass"]), // bypass implies everything
   member: new Set<Capability>([
-    "task:create", "task:update", "task:delete", "task:reorder",
+    "task:create",
+    "task:update",
+    "task:delete",
+    "task:reorder",
   ]),
 };
 ```
@@ -159,7 +162,7 @@ export const ROLE_CAPABILITIES: Record<Role, ReadonlySet<Capability>> = {
 
 One entry. `guest` is `new Set([])`; `owner` is `new Set(["workspace:bypass", "workspace:delete"])`. Then add it to the `Role` union and to `ROLE_CONFIG` (label and description, used by the user switcher). Seed a `Membership` with it.
 
-No control flow changes, because there is none to add to. `src/model/capabilities.test.ts` proves this by driving `can()` through a **synthetic third role** injected into a test table — and asserts outcomes *from* the table rather than restating "members can't archive", so adding a role does not require editing assertions.
+No control flow changes, because there is none to add to. `src/model/capabilities.test.ts` proves this by driving `can()` through a **synthetic third role** injected into a test table — and asserts outcomes _from_ the table rather than restating "members can't archive", so adding a role does not require editing assertions.
 
 ### To add a capability
 
@@ -175,7 +178,7 @@ Four edits in this file: the `Capability` union, `ALL_CAPABILITIES`, `CAPABILITY
 
 ```ts
 export function subjectsOf(state, userId): string[] {
-  return [userId];                      // today: the user is the only subject
+  return [userId]; // today: the user is the only subject
 }
 
 export function resolveGrant(state, resourceId, userId): Grant | undefined {
@@ -204,7 +207,7 @@ Two things in `src/model/access.ts` are already waiting for this, and both matte
 - A save replaces only the **user-subject** rows for the one resource being edited (`grantsExcluding`). So team rows survive an access save instead of being deleted by it.
 - `isUserSubject` is a `Record<GrantSubjectType, boolean>` lookup, not `subjectType === "user"`. A comparison does the same job today and silently keeps team rows the moment the union widens; the lookup makes that widening a **missing key and a compile error**. It also reads an out-of-union value as `undefined` → preserved, which matters because the persisted payload is validated for shape, not for subject values.
 
-An exhaustive-`switch` form was tried here first and was wrong: `return exhaustive` returns the `never` binding's *runtime* value, so a subject type outside the union came back as the truthy string `"team"` and the row was dropped. One test constructs such a row deliberately, which is how that was caught.
+An exhaustive-`switch` form was tried here first and was wrong: `return exhaustive` returns the `never` binding's _runtime_ value, so a subject type outside the union came back as the truthy string `"team"` and the row was dropped. One test constructs such a row deliberately, which is how that was caught.
 
 ---
 
@@ -213,18 +216,20 @@ An exhaustive-`switch` form was tried here first and was wrong: `return exhausti
 **Files:** `src/config/limits.ts`, `src/model/hierarchy.ts`
 
 ```ts
-export const MAX_TASK_DEPTH = 1;   // 0 = none, 1 = one level, n = n levels
+export const MAX_TASK_DEPTH = 1; // 0 = none, 1 = one level, n = n levels
 
-export function taskDepth(state, taskId): number { /* walks parentTaskId */ }
+export function taskDepth(state, taskId): number {
+  /* walks parentTaskId */
+}
 ```
 
 Validation asks `taskDepth(parent) + 1 <= MAX_TASK_DEPTH`, never `parent.parentTaskId === null`. Identical behaviour today, and raising the limit is a one-line change instead of rewriting a check that only ever understood two levels.
 
 ### To allow deeper nesting
 
-Change the constant. Then check the three places that *render* nesting, because each caps itself on the same constant rather than assuming one level:
+Change the constant. Then check the three places that _render_ nesting, because each caps itself on the same constant rather than assuming one level:
 
-- `buildTaskCard` in `src/controllers/hooks/useBoard.ts` recurses with an explicit depth guard. It terminates on its own today because the Model caps nesting — a subtask has no children one level down — and the guard is kept anyway so that raising the cap deepens the tree *deliberately* rather than handing it an unbounded one and blowing the stack on a malformed parent chain.
+- `buildTaskCard` in `src/controllers/hooks/useBoard.ts` recurses with an explicit depth guard. It terminates on its own today because the Model caps nesting — a subtask has no children one level down — and the guard is kept anyway so that raising the cap deepens the tree _deliberately_ rather than handing it an unbounded one and blowing the stack on a malformed parent chain.
 - `src/views/list/TaskTable.tsx` indents by `depth` and recurses.
 - `src/views/drawer/SubtaskList.tsx` is deliberately flat, and would need recursion.
 
@@ -289,17 +294,17 @@ The model, the scoping and the tests already support this; what is missing is da
 - Every entity carries `workspaceId`. Scope is an O(1) filter, not a walk to a root.
 - Every collection selector takes `{ workspaceId, userId }` explicitly. None reads `activeWorkspaceId` internally.
 - `useScope()` in `src/controllers/hooks/useScope.ts` is the **only** place `activeWorkspaceId` is read. Every other hook composes it.
-- `canView` already rejects a node whose chain crosses workspaces — and checks *every* node in the chain, not just the root, because `workspaceId` is denormalized and checking only the root would let a corrupt node inherit into the wrong workspace.
+- `canView` already rejects a node whose chain crosses workspaces — and checks _every_ node in the chain, not just the root, because `workspaceId` is denormalized and checking only the root would let a corrupt node inherit into the wrong workspace.
 - Role comes from `Membership`, so one user can be admin in one workspace and member in another with no change at all.
 - `src/model/workspaceScope.test.ts` already drives a **two-workspace fixture** and asserts that no `ws-acme` selector returns a `ws-other` entity.
 
 **What you would actually touch:**
 
-| Step | File                                    | Change                                                              |
-| ---- | --------------------------------------- | ------------------------------------------------------------------- |
-| 1    | `src/model/seed.ts`                     | A second workspace container, its spaces/lists, and `Membership` rows. Add its id to `workspaceIds`. |
-| 2    | `src/views/topbar/`                     | A workspace switcher, calling `actions.session.setActiveWorkspace`  |
-| 3    | —                                       | Nothing. The action and its guards already exist.                   |
+| Step | File                | Change                                                                                               |
+| ---- | ------------------- | ---------------------------------------------------------------------------------------------------- |
+| 1    | `src/model/seed.ts` | A second workspace container, its spaces/lists, and `Membership` rows. Add its id to `workspaceIds`. |
+| 2    | `src/views/topbar/` | A workspace switcher, calling `actions.session.setActiveWorkspace`                                   |
+| 3    | —                   | Nothing. The action and its guards already exist.                                                    |
 
 `setActiveWorkspace` already refuses a workspace the current user holds no membership in — covered in `src/controllers/slices/sessionSlice.test.ts`, which is the guard that makes the switcher safe to build.
 
@@ -311,11 +316,11 @@ The one thing to decide rather than copy: what happens to `selectedListId` when 
 
 **Files touched: two.**
 
-| Step | File                              | Change                                                                 |
-| ---- | --------------------------------- | ---------------------------------------------------------------------- |
-| 1    | `src/config/views.ts`             | `"calendar"` in the `ViewId` union; `{ id, label: "Calendar", icon: CalendarDays }` in `VIEW_REGISTRY` |
-| 2    | `src/views/viewComponents.ts`     | `calendar: CalendarView` in `VIEW_COMPONENTS`                          |
-| 3    | `src/views/calendar/CalendarView.tsx` | The component, implementing `ViewProps` (`{ listId }`)             |
+| Step | File                                  | Change                                                                                                 |
+| ---- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1    | `src/config/views.ts`                 | `"calendar"` in the `ViewId` union; `{ id, label: "Calendar", icon: CalendarDays }` in `VIEW_REGISTRY` |
+| 2    | `src/views/viewComponents.ts`         | `calendar: CalendarView` in `VIEW_COMPONENTS`                                                          |
+| 3    | `src/views/calendar/CalendarView.tsx` | The component, implementing `ViewProps` (`{ listId }`)                                                 |
 
 **Not touched:** `ViewSwitcher` (maps the registry), `NavigationContext` (stores a `ViewId`), `AppShell` (looks up `VIEW_COMPONENTS[view]`), `lib/uiStorage` (persists whatever id it is given).
 
@@ -327,7 +332,7 @@ If the view should only appear above a certain width, `ViewMeta` already carries
 
 ---
 
-## Where the seams are *not*
+## Where the seams are _not_
 
 Honesty is more useful here than a complete-sounding list. These are real limits, not extension points:
 
@@ -335,3 +340,4 @@ Honesty is more useful here than a complete-sounding list. These are real limits
 - **Access editing is per container.** There is no "apply to everything inside" and no audit view of who can see what across the tree. Inheritance already falls out of the ancestor walk, so neither needs a model change — but both are a feature, not a configuration change.
 - **`Grant` scopes a container, never a task.** `canViewTask` resolves through `primaryListId`. Task-level grants would be a genuine model change, not a widening.
 - **One status set per list, with no editor.** The slice actions and the per-category minimum exist; the UI does not.
+- **A layout primitive is not insulated from its caller.** The registries above make _domain_ extension a data change, and nothing in them helps with layout. `ScrollShadow` is the worked example: it sized its scroll region as a percentage of its parent, which the browser can only resolve if that parent has a height of its own — so the component was correct under three callers and broken under a fourth, with no conditional anywhere in its source. Adding a consumer therefore carries an obligation the type system cannot express: give the region a container with a resolvable height, and size it with `flex-1 min-h-0` rather than `h-full`. The reasoning is in the component's own comment and in the README; the invariant is held by `e2e/drawer-scroll.spec.ts`, because it is a geometry fact and jsdom has no geometry.
