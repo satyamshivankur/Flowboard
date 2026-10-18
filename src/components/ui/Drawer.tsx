@@ -141,10 +141,10 @@ export function Drawer({
       <DialogPanel
         transition
         /*
-         * The live drag offset — the fourth documented inline-`style`
-         * exception, alongside dnd-kit transforms, the sidebar resizer width
-         * and tooltip coordinates. A per-pointer-event value cannot be a
-         * utility class (Requirement 13.4).
+         * The live drag offset — one of the three documented inline-`style`
+         * exceptions, alongside the sidebar resizer width and tooltip
+         * coordinates. A per-pointer-event value cannot be a utility class
+         * (Requirement 13.4).
          */
         style={
           dragOffset > 0

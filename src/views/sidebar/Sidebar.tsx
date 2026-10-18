@@ -146,8 +146,14 @@ function SidebarBody({ onAfterSelect }: { onAfterSelect?: () => void }) {
  * actions and one dialog regardless of which shell is showing.
  */
 export function Sidebar() {
-  const { collapsed, toggleCollapsed, widthRem, isModal, isSheetOpen, closeSheet } =
-    useSidebar();
+  const {
+    collapsed,
+    toggleCollapsed,
+    widthRem,
+    isModal,
+    isSheetOpen,
+    closeSheet,
+  } = useSidebar();
 
   if (isModal) {
     return (
@@ -166,10 +172,11 @@ export function Sidebar() {
   return (
     <aside
       /*
-       * The second documented inline-`style` exception. The width is a live,
-       * user-dragged value in rem, so it cannot be a utility class — and it is
-       * rem rather than px, keeping the one dynamic dimension in the app
-       * consistent with the rest (Requirement 13.4, 22.1).
+       * One of the three documented inline-`style` exceptions — the resizer
+       * one. The width is a live, user-dragged value in rem, so it cannot be a
+       * utility class, and it is rem rather than px, keeping the one dynamic
+       * dimension in the app consistent with the rest
+       * (Requirement 13.4, 22.1).
        */
       style={collapsed ? undefined : { width: `${String(widthRem)}rem` }}
       className={cn(

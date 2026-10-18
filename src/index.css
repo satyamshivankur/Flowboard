@@ -151,7 +151,7 @@
   /* --------------------------------------------------------------- shadows */
 
   /*
-   * px here is deliberate and is one of the four documented exceptions
+   * px here is deliberate and is one of the four documented `px` exceptions
    * (Requirement 22.4): a shadow is cosmetic depth, not layout. Growing its
    * blur radius with the user's font size would look wrong, not accessible.
    */

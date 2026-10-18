@@ -6,7 +6,7 @@ Flowboard is a frontend-only mini project-management app for a single team ("wor
 
 There is no backend. A typed client data layer seeded from fixtures stands in for the API and database, including simulated network latency and injectable failures so that loading, error, and rollback paths are real rather than theoretical.
 
-**Stack (fixed):** React 19 + TypeScript, Vite, Zustand (state), dnd-kit (drag and drop), Headless UI (accessible primitives), Tailwind CSS v4 (styling, exclusive), Lucide (icons), Vitest + Testing Library (tests), Storybook (design system).
+**Stack (fixed):** React 19 + TypeScript, Vite, Zustand (state), dnd-kit (drag and drop — the current `@dnd-kit/react` / `@dnd-kit/dom` packages, not the legacy `@dnd-kit/core` 6 line), Headless UI (accessible primitives), Tailwind CSS v4 (styling, exclusive), Lucide (icons), Vitest + Testing Library (tests), Storybook (design system).
 
 **Architecture (fixed):** MVC — a React-free Model layer, a Controller layer owning all mutations and permission enforcement, and a View layer of presentational components driven by props and React Context.
 
@@ -143,7 +143,9 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 4.10. Columns SHALL scroll independently on the vertical axis while column headers remain visible, and the board SHALL scroll on the horizontal axis when columns exceed the viewport width.
 
-4.11. Drag and drop SHALL be operable from the keyboard via dnd-kit's keyboard sensor, with an accessible announcement of pick-up, move and drop events.
+4.11. Drag and drop SHALL be operable from the keyboard via dnd-kit's keyboard sensor, with an accessible announcement of pick-up, move and drop events. The key that begins and ends a keyboard drag SHALL NOT also be the key that opens the task drawer, so that one key never carries two meanings on a card.
+
+4.12. WHERE the drag-and-drop library previews a cross-column move by reordering DOM nodes itself, the application SHALL mirror that move into React state as it happens, so that React remains the only writer of the elements it rendered. A library-owned DOM move that React does not know about leaves React removing a child from a parent it no longer belongs to, which throws and takes the board down; and a preview the application does not record leaves it with no destination to commit, which is how a drop into an empty column can silently do nothing. Either the application owns the preview, or the library does — never both.
 
 ---
 
@@ -385,14 +387,15 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 13.3. The boilerplate `src/App.css` SHALL be deleted and the boilerplate rules in `src/index.css` replaced.
 
-13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly four, each annotated in code and listed in the README. What they share is that the value is produced per pointer event or per frame, which no static class can express:
+13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly three, each annotated in code and listed in the README. What they share is that the value is produced per pointer event, which no static class can express:
 
 | Exception                                                   | Why it cannot be a class                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| dnd-kit's `transform` and `transition` on sortable items    | Recomputed per frame from pointer position                                                                                                                                                                                                                  |
 | The sidebar resizer's live width                            | A user-dragged value, written in `rem` and clamped to the token range                                                                                                                                                                                       |
 | Positioned overlay coordinates — the tooltip's `top`/`left` | A viewport position from `getBoundingClientRect`. Required because an absolutely positioned overlay is clipped by any ancestor with `overflow` set, and `z-index` cannot escape an overflow clip, so such overlays must be portalled and positioned `fixed` |
-| The bottom sheet's live drag-to-dismiss offset             | A per-pointer-event translation, converted from the pointer's `clientY` travel into `rem` before it is written                                                                                                                                              |
+| The bottom sheet's live drag-to-dismiss offset              | A per-pointer-event translation, converted from the pointer's `clientY` travel into `rem` before it is written                                                                                                                                              |
+
+13.4.2. The drag-and-drop library's per-frame transforms SHALL NOT be routed through React. This was a fourth exception while the project used `@dnd-kit/core` 6, which returned a `transform` object for a component to write to `style` on every pointer event. The current `@dnd-kit/dom` applies those transforms to the element directly, so the exception no longer exists — and reintroducing a library that hands per-frame geometry back to React for rendering SHALL be treated as reintroducing the exception, requiring it to be documented here rather than added silently.
 
 13.4.1. Any overlay that can appear inside a scrolling or clipping region — tooltips, and any popover not already handled by Headless UI's anchoring — SHALL be rendered in a portal and positioned against the viewport. Rem-derived offsets SHALL be converted against the real root font size rather than an assumed 16px, so overlay spacing scales with the rest of the layout.
 
@@ -512,7 +515,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 17.4. The task table SHALL use real table semantics with sortable headers exposing their sort direction.
 
-17.5. Drag and drop SHALL announce pick-up, over-target and drop events through dnd-kit's live-region announcements.
+17.5. Drag and drop SHALL announce pick-up, over-target and drop events through dnd-kit's live-region announcements. Announcements SHALL name the task and the destination column as the user sees them, not internal entity ids, which are true and useless.
 
 17.6. Toasts SHALL be announced via a polite live region.
 
@@ -615,7 +618,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 20.7.1. The sidebar SHALL be the one surface permitted a JavaScript breakpoint check, because its two forms differ in behaviour rather than appearance: below `64rem` it is a focus-trapping, scroll-locking modal sheet, and at `64rem` and above it is a static region of the layout. WHEN the viewport crosses that boundary while the sheet is open, THEN the sheet SHALL close, so that it cannot persist as an invisible focus trap.
 
-20.8. Drag and drop SHALL work on touch. The system SHALL register dnd-kit's `TouchSensor` with a press delay and movement tolerance tuned so that vertical scrolling and horizontal column paging remain possible without accidentally initiating a drag. WHERE touch drag is impractical for a given surface, an equivalent non-drag path SHALL exist — reordering and status changes SHALL both be reachable from the card quick-action menu and the drawer.
+20.8. Drag and drop SHALL work on touch. A drag SHALL begin only after a press delay with a movement tolerance, so that vertical scrolling and horizontal column paging remain possible without accidentally initiating a drag, while a fine pointer SHALL instead use a short movement threshold so a click is not swallowed. The two thresholds SHALL be resolved from the pointer type of the activating event rather than from the viewport, since a tablet is wide and still coarse. WHERE touch drag is impractical for a given surface, an equivalent non-drag path SHALL exist — reordering and status changes SHALL both be reachable from the card quick-action menu and the drawer.
 
 20.9. All interactive targets SHALL be at least `2.75rem` in both dimensions where the primary pointer is coarse. Compact density SHALL NOT be applied in a way that violates this.
 
@@ -701,12 +704,12 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 22.4. The following narrow exceptions SHALL be permitted, and SHALL be the only ones:
 
-| Exception                                                             | Reason                                                                                                                                                                    |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hairline borders, rings and dividers (`border`, `ring-1`, `divide-y`) | A border is a rendering detail, not a layout dimension. Scaling a hairline with root font size produces blurred sub-pixel edges. Tailwind's defaults are `1px` by design. |
-| `box-shadow` offsets, blur and spread                                 | Cosmetic depth, not layout. Shadows should not grow with user font size.                                                                                                  |
+| Exception                                                                                                                       | Reason                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hairline borders, rings and dividers (`border`, `ring-1`, `divide-y`)                                                           | A border is a rendering detail, not a layout dimension. Scaling a hairline with root font size produces blurred sub-pixel edges. Tailwind's defaults are `1px` by design.         |
+| `box-shadow` offsets, blur and spread                                                                                           | Cosmetic depth, not layout. Shadows should not grow with user font size.                                                                                                          |
 | Pointer-travel thresholds — dnd-kit's activation distance and touch tolerance, and the bottom sheet's drag-to-dismiss threshold | Compared against `clientX`/`clientY`, which the browser reports in CSS pixels. A threshold is not a dimension that is rendered, so there is no `rem` equivalent to express it in. |
-| Raster asset intrinsic dimensions, if any are added                   | A pixel count is the correct unit for a pixel buffer.                                                                                                                     |
+| Raster asset intrinsic dimensions, if any are added                                                                             | A pixel count is the correct unit for a pixel buffer.                                                                                                                             |
 
 22.5. Every exception taken SHALL be annotated in code and listed in the README alongside the inline-`style` exception list of 19.9.
 

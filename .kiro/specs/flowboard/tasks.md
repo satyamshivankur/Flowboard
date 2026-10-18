@@ -17,7 +17,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [x] 1. Install dependencies and strip the boilerplate
 - [x] 1.1 Install runtime dependencies
   - `zustand@5.0.15`, `immer@11.1.21`, `nanoid@6.0.2`, `lucide-react@1.57.0`, `@headlessui/react@2.2.10`
-  - `@dnd-kit/core@6.3.1`, `@dnd-kit/sortable@10.0.0`, `@dnd-kit/utilities@3.2.2`, `@dnd-kit/modifiers@9.0.0`
+  - ~~`@dnd-kit/core@6.3.1`, `@dnd-kit/sortable@10.0.0`, `@dnd-kit/utilities@3.2.2`, `@dnd-kit/modifiers@9.0.0`~~ — all four removed in task 26. The current set is `@dnd-kit/react@0.5.1`, `@dnd-kit/dom@0.5.1`, `@dnd-kit/abstract@0.5.1`, `@dnd-kit/helpers@0.5.1`
   - _Requirements: 9.1, 11.10, 13.10, 13.11_
 - [x] 1.2 Install and wire Tailwind v4
   - `tailwindcss@4.3.3` + `@tailwindcss/vite@4.3.3`, register the plugin in `vite.config.ts`
@@ -290,7 +290,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - `TaskCard`, `KanbanColumn`, `SidebarTree`, `TaskDrawer`, `EmptyState`, wrapped in `AppProviders` with a seeded store
   - `src/views/Composites.stories.tsx`. View-models are built with the real `buildTaskCard` and the real `useVisibleTree` against `createSeedState()`, so a change to a selector shows up in the workbench rather than only in the assembled app. `SEED_NOW` is the reference time, which is what makes "overdue" and "due today" render the same every day
   - `NavigationProvider` gained `initialOpenTaskId` so the drawer is reviewable directly instead of requiring a click through the board to reach it
-  - `src/views/stories.test.tsx` renders every exported story. `build-storybook` only proves a story *bundles*; a story that throws on render still builds and then silently misrepresents the component it documents
+  - `src/views/stories.test.tsx` renders every exported story. `build-storybook` only proves a story _bundles_; a story that throws on render still builds and then silently misrepresents the component it documents
   - _Requirements: 11.8_
 - [x] 11.4 Add responsive stories for every surface that changes shape
   - Board, list view, drawer, sidebar and top bar at base and at `md`, so responsive behaviour is reviewable per component rather than only in the assembled app
@@ -378,13 +378,13 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 15.2, 15.3, 15.10_
 - [x] 14.6 Card keyboard operability
   - Focusable, Enter opens, overflow menu reachable without a pointer
-  - **Bug found and fixed**: the card spread dnd-kit's `listeners` and then set its own `onKeyDown`, which *replaced* the `KeyboardSensor` activator. Keyboard dragging never started, while `aria-roledescription="sortable"` went on advertising it — a silent failure, since nothing throws. The handler now composes: dnd-kit sees the event first and we act only on what it ignored
+  - **Bug found and fixed**: the card spread dnd-kit's `listeners` and then set its own `onKeyDown`, which _replaced_ the `KeyboardSensor` activator. Keyboard dragging never started, while `aria-roledescription="sortable"` went on advertising it — a silent failure, since nothing throws. The handler now composes: dnd-kit sees the event first and we act only on what it ignored
   - Key meanings are disjoint by configuration, not by luck: `keyboardCodes` narrows dnd-kit's `start`/`end` to Space, leaving Enter to mean "open the drawer" and nothing else. dnd-kit's default includes Enter in `start`, which would have made one key do two things
   - _Requirements: 15.5, 17.1_
-- [x] 14.7 Wire `DndContext` with pointer, touch and keyboard sensors
-  - `PointerSensor` at 8px activation distance so clicks are not swallowed; `TouchSensor` at 200ms delay and 8px tolerance so swipes scroll and page rather than drag; `KeyboardSensor` with sortable coordinates
-  - `SortableContext` per column; `useDroppable` per column for cross-column moves
-  - Annotate the two numeric thresholds as documented `px` exceptions
+- [x] 14.7 Wire the drag-and-drop provider with pointer and keyboard sensors
+  - **Superseded by task 26**, which replaced the library. Recorded as built: `DndContext` with `PointerSensor` at 8px activation distance, `TouchSensor` at 200ms delay and 8px tolerance, `KeyboardSensor` with sortable coordinates, a `SortableContext` per column and a `useDroppable` per column
+  - Now: `DragDropProvider` with one `PointerSensor` resolving its constraint from `event.pointerType` — 8px of movement for a fine pointer, a 200ms press with 10px tolerance for touch — and a `KeyboardSensor` whose `start`/`end` codes are narrowed to Space. No `TouchSensor` exists in the current packages, and no `SortableContext`: cards state their own `group` and `index`
+  - Annotate the numeric thresholds as documented `px` exceptions
   - _Requirements: 4.4, 4.5, 4.11, 20.8, 22.4, 22.5_
 - [ ] 14.7.1 Verify touch drag against mobile column paging
   - Confirm a vertical swipe scrolls, a horizontal swipe pages columns, and only a long press starts a drag
@@ -394,25 +394,26 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 20.8_
 - [x] 14.8 Drag visuals
   - `DragOverlay` with a tilted elevated clone, subdued same-size placeholder in the source slot, highlighted drop-target column and insertion point
-  - The insertion point is the gap `verticalListSortingStrategy` opens, rather than a separate drawn line: one fewer element, and it cannot disagree with where the drop will actually land
+  - The insertion point is the gap the sorting strategy opens, rather than a separate drawn line: one fewer element, and it cannot disagree with where the drop will actually land
+  - **Everything below describes the `@dnd-kit/core` 6 implementation and is kept as history.** Task 26 replaced the library; the faults are recorded because three of the four recurred in a different form after the migration, and because each one survived a green suite for the same reason — jsdom has no layout, so no test in this repo can run a collision
   - **Corrected three times; the history is the useful part, because the fixes look alike and are not.**
-  - *First fault — nothing happened mid-drag.* There was no `onDragOver` handler at all. The destination column never highlighted unless it was empty (its own `useDroppable().isOver` is false whenever one of its cards wins the collision), its cards never parted, and the index was resolved at drop time from the dragged card's corners — which in a non-empty column is nearly always the first card. Hence "it always lands at the top"
-  - *Second fault — a preview resolved against the wrong list.* The board rendered the move as though it had happened but resolved `over` against the **store's** columns while displaying the **previewed** ones. Not a fixed point: relocating the card changes which card is under the pointer, which maps to a different index in the original list, which moves the card again. With a fresh object stored on every event it ran away — "Maximum update depth exceeded" — and crashed the app
-  - *Third fault — removing the preview.* Stable, and it threw away both the insertion feedback and the cross-column index, so a card had to be dropped into a column and then sorted in a second drag
-  - **The shape that works** is dnd-kit's own multiple-containers recipe. The plan *is* the rendered state, and `over` resolves against the plan rather than the store. Stability rests on one rule: `onDragOver` only ever moves a card **between** columns, never within one. Once the card is in its destination the active and over columns match, the handler returns the same plan object, React bails out, nothing re-measures, and the loop has no fuel. Reordering *inside* a column is left to `verticalListSortingStrategy` — transforms, no React state — and committed once on drop by `finalDrop`
-  - Only column membership lives in state now, and there are three columns; previously the *index* did, so every pixel of movement was a state change. That is the difference between three renders per drag and hundreds
+  - _First fault — nothing happened mid-drag._ There was no `onDragOver` handler at all. The destination column never highlighted unless it was empty (its own `useDroppable().isOver` is false whenever one of its cards wins the collision), its cards never parted, and the index was resolved at drop time from the dragged card's corners — which in a non-empty column is nearly always the first card. Hence "it always lands at the top"
+  - _Second fault — a preview resolved against the wrong list._ The board rendered the move as though it had happened but resolved `over` against the **store's** columns while displaying the **previewed** ones. Not a fixed point: relocating the card changes which card is under the pointer, which maps to a different index in the original list, which moves the card again. With a fresh object stored on every event it ran away — "Maximum update depth exceeded" — and crashed the app
+  - _Third fault — removing the preview._ Stable, and it threw away both the insertion feedback and the cross-column index, so a card had to be dropped into a column and then sorted in a second drag
+  - **The shape that works** is dnd-kit's own multiple-containers recipe. The plan _is_ the rendered state, and `over` resolves against the plan rather than the store. Stability rests on one rule: `onDragOver` only ever moves a card **between** columns, never within one. Once the card is in its destination the active and over columns match, the handler returns the same plan object, React bails out, nothing re-measures, and the loop has no fuel. Reordering _inside_ a column is left to `verticalListSortingStrategy` — transforms, no React state — and committed once on drop by `finalDrop`
+  - Only column membership lives in state now, and there are three columns; previously the _index_ did, so every pixel of movement was a state change. That is the difference between three renders per drag and hundreds
   - `measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}`: a card moving between columns changes their heights, and the default measures once at pickup, so every collision after the first crossing was computed against a stale layout — a drag that felt like it was fighting the cursor
   - Collision detection is `pointerWithin` with `closestCorners` as the fallback, so the hovered card is the one under the cursor rather than the one nearest the dragged card's corners. The fallback remains for keyboard drags, where there is no pointer
   - `TaskCard` and `KanbanColumn` are wrapped in `memo`, and every one of the eleven card callbacks is hoisted into a `useCallback` on the board. They were inline arrows, so each board render handed every card brand-new functions — `memo` would have cost a comparison and saved nothing
   - **Four separate sources of render churn at the crossing**, found after the drag still felt jerky with the plan in place. Each card carries four pickers, a twenty-item menu and several tooltips, so none of these were cheap:
-    - `statusOptions` was derived from the *previewed* columns. A status's id, name and colour cannot change during a drag, but reading them off the preview produced a fresh array on every plan change — which gave every card a new `statuses` prop and rebuilt every menu at the exact moment the drag needed the main thread. Now derived from the store's columns
-    - The card's menu was one `useMemo` including `index` and `columnLength`. A crossing shifts the index of every card below the insertion point in *both* columns, so each of them rebuilt twenty-odd items — including JSX per status and per member — to change two disabled flags. Split: the reorder entries are spliced in separately
+    - `statusOptions` was derived from the _previewed_ columns. A status's id, name and colour cannot change during a drag, but reading them off the preview produced a fresh array on every plan change — which gave every card a new `statuses` prop and rebuilt every menu at the exact moment the drag needed the main thread. Now derived from the store's columns
+    - The card's menu was one `useMemo` including `index` and `columnLength`. A crossing shifts the index of every card below the insertion point in _both_ columns, so each of them rebuilt twenty-odd items — including JSX per status and per member — to change two disabled flags. Split: the reorder entries are spliced in separately
     - `SortableContext` received `tasks.map(...)` inline, so a new array identity on every column render rebuilt its context value and re-rendered every `useSortable` beneath it. Memoised on `tasks`
     - `BoardPager` read its names from the preview for no reason
-  - `animateLayoutChanges` forces `wasDragging: true`, per dnd-kit's own multiple-containers example. The default predicate bails out when that flag is false, which is the case for a card newly mounted into another column's `SortableContext` — so the cards above and below it *snapped* into place instead of sliding. That snap, at both ends of a cross-column drag, was the visible part of "jerky"
+  - `animateLayoutChanges` forces `wasDragging: true`, per dnd-kit's own multiple-containers example. The default predicate bails out when that flag is false, which is the case for a card newly mounted into another column's `SortableContext` — so the cards above and below it _snapped_ into place instead of sliding. That snap, at both ends of a cross-column drag, was the visible part of "jerky"
   - **Not measurable from here.** Frame timing needs a browser and a profiler; these are reasoned reductions in render work plus one behavioural fix to the layout animation. The arithmetic has tests; the feel does not
   - `DragOverlay` uses the default drop animation rather than `null`. Suppressing it meant the overlay vanished and the card reappeared elsewhere in the same frame, which reads as a snap rather than a settle (Requirement 14.11)
-  - The arithmetic is a pure module with 31 tests, including that `crossColumnMove` returns the *identical object* when nothing should change — the loop guard is a testable property, not a hope. A real drag needs layout and jsdom has none, which is why all three faults survived a green suite
+  - The arithmetic is a pure module with 31 tests, including that `crossColumnMove` returns the _identical object_ when nothing should change — the loop guard is a testable property, not a hope. A real drag needs layout and jsdom has none, which is why all three faults survived a green suite
   - _Requirements: 4.6, 15.6_
 - [x] 14.9 Drop handling and cancellation
   - Compute target status and fractional position from drop-index neighbours; Escape or an invalid drop mutates nothing
@@ -466,7 +467,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - Due-date presets come from `DUE_DATE_PRESETS` and `dueDateAtDays`, shared with the card menu, so "tomorrow" cannot mean two different instants
   - _Requirements: 2.5, 3.5, 7.4_
 - [x] 16.5 Per-field pending indicator and revert-with-toast on failure
-  - `PropertyRow` takes `pending`, and the drawer tracks *which* field is saving rather than merely whether something is — a single global spinner cannot say that the status change landed while the assignee change is still in flight
+  - `PropertyRow` takes `pending`, and the drawer tracks _which_ field is saving rather than merely whether something is — a single global spinner cannot say that the status change landed while the assignee change is still in flight
   - The indicator sits on the row's label, not inside the control, so a select does not change size mid-save and shift every row below it
   - Every drawer write goes through `useAction`, which is what turns the Model's rollback into something a user can see (Requirement 14.4)
   - _Requirements: 7.7, 14.7_
@@ -496,7 +497,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [x] 17.2 Disable rather than hide capability-gated affordances, with a stated reason
   - Reason shown on hover where available and as inline helper text on coarse pointers, so it is never hover-only
   - **Audit found two gaps.** Menu items carried the reason only in `title`, which a touch device can never surface; and the card's quick-action menu passed no reason at all, so a greyed "Delete task" simply refused. Both fixed
-  - `Menu` now renders the reason as a second line, shown under `coarse-pointer:`, wired through `aria-describedby` rather than left as bare text inside the button — as plain text it would have become part of the accessible name, and *only* on a coarse pointer, so the same item would be called two different things on two devices
+  - `Menu` now renders the reason as a second line, shown under `coarse-pointer:`, wired through `aria-describedby` rather than left as bare text inside the button — as plain text it would have become part of the accessible name, and _only_ on a coarse pointer, so the same item would be called two different things on two devices
   - `ReadOnlyNotice` states it once per surface for the board and the list, matching the drawer's existing strip. The alternative — appending the reason to each control's label — turned "Add task to To do" into a sentence, and was reverted
   - _Requirements: 8.11, 8.12, 20.10_
 - [x] 17.3 Distinguish permission-denied toasts from network-error toasts in tone and wording
@@ -536,7 +537,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - Confirm it is hidden below `md` and cannot reduce a touch target below `2.75rem`
   - **The clamp was a comment, not a rule.** `src/index.css` claimed density was "clamped to comfortable below md"; the variant was a plain attribute selector with no condition on it. Only `TreeItem` was actually safe, and by accident — it happened to pair `density-compact:` with `can-hover:`
   - The condition now lives in the variant: `density-compact` is wrapped in `@media (pointer: fine)`, so no `density-compact:` utility can shrink a target below the minimum however it is written. Verified against the emitted CSS, not just the source
-  - The condition is about the *pointer*, not the viewport — a tablet is wide and still coarse, which a width-based clamp would have missed
+  - The condition is about the _pointer_, not the viewport — a tablet is wide and still coarse, which a width-based clamp would have missed
   - _Requirements: 16.3, 20.9_
 - [x] 19.3 Audit truncation and tooltips across tree, breadcrumbs, cards and table cells
   - Confirm the full value is reachable without hover on coarse pointers
@@ -581,7 +582,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 17.5, 17.6_
 - [x] 20.4 Check AA contrast on tokens and confirm no status or priority is conveyed by color alone
   - Done as a test, not a glance: `src/config/contrast.test.ts` parses `src/index.css`, computes WCAG relative luminance and asserts ratios for the pairings the app actually renders. A token nudged below the threshold now fails the build
-  - **It found six failures.** `ink-400` was 2.58:1 — and it carries every due date, count, timestamp and placeholder in the app. `warning-700` was 3.72:1 on its own tint, which is the read-only banner's own text. `priority-urgent`, `priority-high` and `priority-normal` were 3.83, 2.52 and 3.38 measured where `PriorityBadge` renders them: as *text* on the matching 50-level tint, not against white. `status-todo` was 2.32:1 as a pill dot
+  - **It found six failures.** `ink-400` was 2.58:1 — and it carries every due date, count, timestamp and placeholder in the app. `warning-700` was 3.72:1 on its own tint, which is the read-only banner's own text. `priority-urgent`, `priority-high` and `priority-normal` were 3.83, 2.52 and 3.38 measured where `PriorityBadge` renders them: as _text_ on the matching 50-level tint, not against white. `status-todo` was 2.32:1 as a pill dot
   - All six darkened to computed values rather than re-picked by eye. The pairing that mattered — token-as-text-on-its-own-tint — is exactly the one a palette review does not look at
   - `ink-400` is held to the 4.5:1 body-text threshold, not a graphics threshold: WCAG has no "it is only metadata" exemption. `ink-300` and `priority-none` are asserted as decorative, so promoting either to text would fail
   - The colour-alone half is asserted structurally: every priority carries an icon and a label, every status category carries a label
@@ -589,7 +590,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [x] 20.5 Verify the off-canvas sidebar and bottom sheet meet dialog expectations
   - Focus trapped while open, Escape closes, focus restored to the trigger, background content not reachable by tab
   - Both covered by tests. The sidebar test overrides `matchMedia` rather than resizing anything, because `isModal` is the one breakpoint this app observes from JavaScript and that query is precisely what it reads
-  - "Background not reachable" is asserted from the other direction, and it caught a test of mine: Headless UI hides the rest of the document from the accessibility tree while a modal is open, which is why asserting on the board *through* an open drawer fails. That is the requirement working
+  - "Background not reachable" is asserted from the other direction, and it caught a test of mine: Headless UI hides the rest of the document from the accessibility tree while a modal is open, which is why asserting on the board _through_ an open drawer fails. That is the requirement working
   - _Requirements: 17.2, 20.4, 20.7_
 
 ---
@@ -602,10 +603,10 @@ nothing further was added — the README names them as the attempted pair.
 - [x] 21. Client-side task search
   - Debounced input over title and description, scoped to the current user's visible tasks, results grouped by list with highlighted matches and a keyboard shortcut to focus the field
   - Full-screen overlay at base viewport, anchored panel from `md`; results list uses `2.75rem` rows on touch
-  - Four pieces, one per layer: `selectSearchResults` (Model, already written in Phase 1) decides *what* is visible; `useTaskSearch` groups and shapes it; `CommandPalette` renders it; `TaskSearch` connects them. The palette knows nothing about tasks or permissions, which is why it is reviewable in Storybook with literal data
+  - Four pieces, one per layer: `selectSearchResults` (Model, already written in Phase 1) decides _what_ is visible; `useTaskSearch` groups and shapes it; `CommandPalette` renders it; `TaskSearch` connects them. The palette knows nothing about tasks or permissions, which is why it is reviewable in Storybook with literal data
   - Scoping lives in the Model, not the view. A search box matching on titles is the easiest way to leak the name of something a user cannot open, and no amount of UI care fixes an unscoped query. Tested from both directions: Bob gets nothing for a task on his denied Infra list, and nothing for the private Marketing space
   - Built on Headless UI's `Combobox` inside a `Dialog`, which supplies the hard part — `aria-activedescendant` roving focus, arrow keys, Enter, and focus returned to the trigger. Hand-rolling that is how a palette ends up mouse-only
-  - **Three bugs found while testing.** (1) `Combobox` swallows Escape as "close the option list", which does nothing when the options are `static` — so the key looked dead and the palette could only be dismissed via the backdrop. Handled explicitly on the input. (2) Reading the debounced value alone left the previous query's hits on screen after clearing the input; clearing is now immediate and only *searching* is debounced. (3) The `RegExp` built for match highlighting needed escaping — a single `(` typed into the field would otherwise throw
+  - **Three bugs found while testing.** (1) `Combobox` swallows Escape as "close the option list", which does nothing when the options are `static` — so the key looked dead and the palette could only be dismissed via the backdrop. Handled explicitly on the input. (2) Reading the debounced value alone left the previous query's hits on screen after clearing the input; clearing is now immediate and only _searching_ is debounced. (3) The `RegExp` built for match highlighting needed escaping — a single `(` typed into the field would otherwise throw
   - Group labels are the full ancestor path, not the leaf name: two spaces can each hold a list called "Backlog"
   - _Requirements: 23.1, 23.2_
 - [x] 22. Confirm optimistic DnD rollback end to end
@@ -647,8 +648,9 @@ nothing further was added — the README names them as the attempted pair.
 - [ ] 24.8 Write the AI usage log, with the long form in `AI_USAGE.md`
   - _Requirements: 19.8_
 - [ ] 24.9 List every inline `style=` exception with file location and justification
-  - dnd-kit sortable transforms; sidebar resizer live width
-  - _Requirements: 13.4, 19.9_
+  - Three, not four: `views/sidebar/Sidebar.tsx` (resizer live width), `components/ui/Tooltip.tsx` (portalled overlay coordinates), `components/ui/Drawer.tsx` (bottom sheet drag-to-dismiss offset)
+  - dnd-kit's sortable transform was the fourth and is gone — `@dnd-kit/dom` writes it to the element directly, so neither `TaskCard` nor `TreeItem` carries an inline style (Requirement 13.4.2)
+  - _Requirements: 13.4, 13.4.2, 19.9_
 - [ ] 24.9.1 Document the `rem` unit rule
   - The rule, the four exceptions taken under 22.4 with their locations, and the repeatable verification command
   - _Requirements: 19.13, 22.5, 22.7_
@@ -669,10 +671,10 @@ nothing further was added — the README names them as the attempted pair.
 - [ ] 25.1 Run `npm run lint`, `npm run build` and `npm run test` clean
   - _Requirements: 10.5, 18.1_
 - [ ] 25.2 Grep the repo to prove the styling constraints hold
-  - No `.css` file other than `src/index.css`; no `styled`/`emotion`/`sass` dependencies; every `style=` occurrence is one of the two documented exceptions
+  - No `.css` file other than `src/index.css`; no `styled`/`emotion`/`sass` dependencies; every `style=` occurrence is one of the three documented exceptions
   - _Requirements: 13.1, 13.2, 13.4_
 - [ ] 25.3 Run the `px` audit and confirm every hit is an allowed exception
-  - `rg -n '\bpx\b' src` — remaining matches must be hairline borders, shadow offsets, dnd-kit thresholds or raster intrinsic sizes, and each must be annotated in code
+  - `rg -n '\bpx\b' src` — remaining matches must be hairline borders, shadow offsets, pointer-travel thresholds (the sensor activation distance and touch tolerance, and the sheet's drag-to-dismiss threshold) or raster intrinsic sizes, and each must be annotated in code
   - Confirm no arbitrary Tailwind value and no dimensional `@theme` token uses `px`, and that the root font size is not overridden
   - _Requirements: 22.3, 22.4, 22.7, 22.8_
 - [ ] 25.4 Audit the scalability seams against the requirement, not the happy path
@@ -687,3 +689,60 @@ nothing further was added — the README names them as the attempted pair.
   - Tree navigation → kanban drag → card quick action → task drawer → forced failure and rollback → Alice vs Bob under 30 seconds
   - Repeat at `20rem` with touch emulation, confirming the off-canvas sidebar, column paging, bottom sheet and long-press drag
   - _Requirements: 8.14, 9.8, 20.2, 20.8_
+
+---
+
+## Phase 10 — dnd-kit migration
+
+Added after Phase 8, so the task numbering continues rather than renumbering
+what Phases 0–9 reference. The trigger was a complaint that a cross-column card
+drag felt jerky, and the finding that the project was on the legacy
+`@dnd-kit/core` 6 line rather than the current packages.
+
+- [x] 26. Migrate from `@dnd-kit/core` 6 to `@dnd-kit/react`
+- [x] 26.1 Swap the packages
+  - Remove `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`, `@dnd-kit/modifiers`; add `@dnd-kit/react@0.5.1`, `@dnd-kit/dom@0.5.1`, `@dnd-kit/abstract@0.5.1`, `@dnd-kit/helpers@0.5.1`, exact-pinned
+  - `@dnd-kit/helpers` is a direct dependency for the `move` helper used in 26.4. It was briefly removed on the assumption that `@dnd-kit/dom/sortable` pulled it in; it does not — `move` is bundled inline there — so the direct dependency is real
+  - _Requirements: 13.10_
+- [x] 26.2 Port the board to `DragDropProvider`
+  - `DndContext` → `DragDropProvider`; `SortableContext` deleted, with cards declaring `group` (their column's status id) and `index` instead; `useDroppable` per column at `CollisionPriority.Low` so cards win the collision whenever the pointer is over one
+  - Sensors per 14.7. `onDragCancel` is gone — cancellation arrives as `event.canceled` on `onDragEnd`
+  - The custom `pointerWithin`/`closestCorners` detector and the `MeasuringStrategy.Always` override are both removed. 6.x needed the first because `closestCorners` measured from the dragged card's corners and resolved to whichever card sat nearest the column's top-left, and the second to keep collisions honest as column heights changed — constant re-measurement that was itself part of what the drag felt like. The current defaults do both properly
+  - _Requirements: 4.1, 4.4, 4.5, 4.6, 4.9, 4.10_
+- [x] 26.3 Drop the two inline-`style` transforms
+  - `TaskCard` and `TreeItem` no longer compute `CSS.Transform.toString(transform)`; `@dnd-kit/dom` writes the per-frame transform to the element directly. This is why a drag no longer re-renders the board, and it retires one of the four inline-`style` exceptions
+  - `isDragging` → `isDragSource` for the source-slot styling, so the placeholder stays subdued through the drop animation instead of flashing back to full opacity for a frame
+  - The hand-rolled keyboard composition in `TaskCard` is gone: the `KeyboardSensor`'s default activation guard already refuses any event whose target is not the element itself, which is what the old code was badly reimplementing. The card's own handler is now Enter-only
+  - `role`, `tabIndex`, `aria-roledescription` and `aria-describedby` are applied by the accessibility plugin rather than spread from an `attributes` object — which is why the tests that selected cards by `aria-roledescription="sortable"` now select `"draggable"`
+  - _Requirements: 13.4, 13.4.2, 15.5, 15.6, 17.1_
+- [x] 26.4 Fix the two bugs the migration introduced
+  - **Both had one cause**: the migration took the wrong one of dnd-kit's two documented state-management patterns. `OptimisticSortingPlugin` previews a cross-list drag by moving the DOM node itself, which React then tried to remove from a parent it no longer belonged to — `NotFoundError: Failed to execute 'removeChild' on 'Node'`. And the same plugin returns early on a non-sortable target, so a drop into an **empty** column never updated the dragged card's `group` and a commit path reading the destination off that card silently wrote nothing
+  - The fix is the pattern dnd-kit checks for: mirror the move into React state in `onDragOver` with the `move` helper, and the plugin stands down (it snapshots every sortable's index, waits for the renderer, and bails out via `hasChanged`). `move` also handles the empty-column target the plugin skips
+  - `dragPlan.ts` is therefore not fully retired — `dragDrop.ts` keeps the capture/locate/render bookkeeping around `move`, at roughly a quarter of the size, with the index arithmetic that used to be hand-rolled now the library's
+  - The plan is held in both a ref and state: state renders, the ref lets `onDragEnd` and the `dragend` announcement read the current value without depending on render timing or on which listener the monitor calls first
+  - _Requirements: 4.9, 4.12_
+- [x] 26.5 Opt the sidebar tree out of optimistic sorting
+  - `plugins: [SortableKeyboardPlugin]` on the tree's `useSortable`. A tree drop is reorder _or_ reparent _or_ refuse, so there is no single list for a preview to rearrange, and it never had one
+  - Leaving the plugin on was not harmless. All rows are siblings in one `<ul>`, so React's keyed reconciliation happened to recover after a successful drop — but a **rejected** mutation rolls the store back, React re-renders nothing, and the sidebar is left showing an order the store disagrees with
+  - _Requirements: 1.7, 1.8, 4.12_
+- [x] 26.6 Name the announcements
+  - The accessibility plugin is configured through `configure(Accessibility, { announcements })` — it has no `static configure` in 0.5.1 — so a drag announces "Picked up Audit empty states across the product" and "Dropped … in In progress, position 2" rather than entity ids
+  - Labels are resolved through a ref synced in an effect, so the plugin list keeps a stable identity and renaming a task mid-session does not re-register plugins
+  - The sidebar tree still uses dnd-kit's id-based defaults. Pre-existing — it had no custom announcements under 6.x either — and left as a named gap rather than folded in silently
+  - _Requirements: 4.11, 17.5_
+- [x] 26.7 Add the jsdom stubs the new packages need
+  - `Document.getAnimations`, `Element.prototype.animate` and `IntersectionObserver` in `src/test/setup.ts`. `@dnd-kit/dom` reaches for all three to settle animations and observe geometry; jsdom implements none, and without them a drag throws from inside a signal effect — an unhandled error rather than a failed assertion, which is the worst place for it
+  - Reporting "nothing is animating" and "nothing is observed" is the honest stub: jsdom runs no animations and has no layout to intersect
+  - _Requirements: 18.1, 18.8_
+- [x] 26.8 Rewrite the drop-arithmetic tests
+  - `dragPlan.test.ts` → `dragDrop.test.ts`. The rearranging is no longer tested here because it is no longer ours; what is tested is the bookkeeping either side of `move`, including the empty-column commit that 26.4 fixed
+  - Three suite-level corrections the migration forced: cards select by `aria-roledescription="draggable"`, the keyboard-drag test queries dnd-kit's `[data-dnd-overlay]` container instead of counting two elements with the same accessible name (the overlay clone renders with registration stubbed out, so it never gets the `role` the real card has — the old assertion would have passed for the wrong reason), and the announcement assertion matches the new wording
+  - _Requirements: 18.1, 21.22_
+- [x] 26.9 Verify the drag in a real browser
+  - Neither 26.4 bug is reachable from jsdom: one needs real layout for collision detection, the other needs React to re-render over a moved node. Both passed a green 516-test suite
+  - Verified by driving the running app: drop into a populated column (lands under the pointer, no console errors), drop into an empty column (destination highlights mid-drag, card previews there, commits), within-column reorder, keyboard drag across columns, Escape cancel, Enter still opening the drawer, a rejected drop with "fail next operation" armed restoring the exact pre-drag order with a retryable toast, and the sidebar applying valid reorders while refusing invalid ones with the explanatory toast
+  - _Requirements: 4.4, 4.5, 4.7, 4.8, 4.9, 4.11, 4.12, 14.12_
+- [ ] 26.10 Re-check the touch gesture on a device
+  - Same gap as 14.7.1, now with a different mechanism behind it: one `PointerSensor` resolving its constraint from `event.pointerType` rather than a separate `TouchSensor`. Confirm a vertical swipe scrolls, a horizontal swipe pages columns, and only a long press starts a drag
+  - Unchecked for the same reason as before — jsdom has no touch model and no device was available
+  - _Requirements: 20.8_

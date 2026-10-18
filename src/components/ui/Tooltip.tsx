@@ -93,10 +93,11 @@ function positionFor(rect: DOMRect, side: TooltipSide): Position {
  * `overflow-hidden`. It only looked correct in Storybook, which has no
  * clipping ancestor.
  *
- * The coordinates are the project's third documented inline-`style` exception
- * (Requirement 13.4). A viewport position computed from `getBoundingClientRect`
- * cannot be expressed as a utility class; the rem gap is still converted
- * against the real root font size so the spacing scales like everything else.
+ * The coordinates are one of the three documented inline-`style` exceptions —
+ * the overlay-coordinates one (Requirement 13.4). A viewport position computed
+ * from `getBoundingClientRect` cannot be expressed as a utility class; the rem
+ * gap is still converted against the real root font size so the spacing scales
+ * like everything else.
  *
  * Deliberately **not** shown on coarse pointers. A tooltip there either never
  * fires, or fires on tap and swallows the tap meant for the control — which is
