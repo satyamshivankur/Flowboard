@@ -389,11 +389,11 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - Now: `DragDropProvider` with one `PointerSensor` resolving its constraint from `event.pointerType` — 8px of movement for a fine pointer, a 200ms press with 10px tolerance for touch — and a `KeyboardSensor` whose `start`/`end` codes are narrowed to Space. No `TouchSensor` exists in the current packages, and no `SortableContext`: cards state their own `group` and `index`
   - Annotate the numeric thresholds as documented `px` exceptions
   - _Requirements: 4.4, 4.5, 4.11, 20.8, 22.4, 22.5_
-- [ ] 14.7.1 Verify touch drag against mobile column paging
+- [x] 14.7.1 Verify touch drag against mobile column paging
   - Confirm a vertical swipe scrolls, a horizontal swipe pages columns, and only a long press starts a drag
   - Confirm status change and reorder are both reachable without dragging, from the card menu and the drawer
-  - **Second bullet done**: the card menu carries "Move up", "Move down" and a status item per sibling status, all covered by tests. Reordering no longer requires a drag of any kind
-  - **First bullet unverified**: the `TouchSensor` delay and tolerance are configured and reasoned about, but jsdom has no touch model and no device was available here. This needs a real phone, so it stays unchecked rather than claimed
+  - **Second bullet done in Phase 6**: the card menu carries "Move up", "Move down" and a status item per sibling status, all covered by tests. Reordering no longer requires a drag of any kind
+  - **First bullet closed in task 40**, by `e2e/touch-drag.spec.ts` rather than by hand on a device. Carried as "needs a real phone" through two phases; what it actually needed was a touch event stream, which CDP supplies
   - _Requirements: 20.8_
 - [x] 14.8 Drag visuals
   - `DragOverlay` with a tilted elevated clone, subdued same-size placeholder in the source slot, highlighted drop-target column and insertion point
@@ -749,9 +749,9 @@ drag felt jerky, and the finding that the project was on the legacy
   - Neither 26.4 bug is reachable from jsdom: one needs real layout for collision detection, the other needs React to re-render over a moved node. Both passed a green 516-test suite
   - Verified by driving the running app: drop into a populated column (lands under the pointer, no console errors), drop into an empty column (destination highlights mid-drag, card previews there, commits), within-column reorder, keyboard drag across columns, Escape cancel, Enter still opening the drawer, a rejected drop with "fail next operation" armed restoring the exact pre-drag order with a retryable toast, and the sidebar applying valid reorders while refusing invalid ones with the explanatory toast
   - _Requirements: 4.4, 4.5, 4.7, 4.8, 4.9, 4.11, 4.12, 14.12_
-- [ ] 26.10 Re-check the touch gesture on a device
-  - Same gap as 14.7.1, now with a different mechanism behind it: one `PointerSensor` resolving its constraint from `event.pointerType` rather than a separate `TouchSensor`. Confirm a vertical swipe scrolls, a horizontal swipe pages columns, and only a long press starts a drag
-  - Unchecked for the same reason as before — jsdom has no touch model and no device was available
+- [x] 26.10 Re-check the touch gesture on a device
+  - Same gap as 14.7.1, now with a different mechanism behind it: one `PointerSensor` resolving its constraint from `event.pointerType` rather than a separate `TouchSensor`
+  - **Closed in task 40.** The migration's mechanism is the one now under test: the delay and tolerance are resolved per event, so the same 260px travel pages the board at 30ms and drags a card at 400ms
   - _Requirements: 20.8_
 
 ---
@@ -1117,3 +1117,45 @@ The headline: `statusSlice.ts` at **7.4% statements, 0% branches**, while its ow
   - **Requirement 21.20 says lint SHALL fail on unused exports, and it does not** — the rule was never configured, which is why this accumulated silently. Removing the thirteen and wiring the rule is the fix that stops it recurring; `unwrap` went the other way this phase and now has callers in the two new slice tests
   - Left open because deleting exported Model functions is a decision, not a cleanup
   - _Requirements: 18.12.3, 21.13, 21.17, 21.20_
+
+---
+
+## Phase 18 — The two E2E gaps the brief cares about
+
+Reading the brief's section 8 against the suites: its minimum — "unit/store tests for permission filtering on the tree and task access" plus "at least one component test or E2E" — was already met several times over. But the E2E suite had seven specs for drag, drawer, navigation, persistence, smoke, rollback and tree reparenting, and nothing for the one flow the brief singles out twice: "switching users must immediately reflect what the tree and boards show", and "Alice vs Bob difference is demoable in under 30 seconds."
+
+- [x] 39. `e2e/permissions.spec.ts` — the demo, in a browser
+- [x] 39.1 Assert through the tree, never the store
+  - Nine specs: the switcher names its current user and role; Alice sees the private Marketing space and Bob does not while Carol's allow grant brings it back; Bob's explicit deny on Infra beats public inheritance while Platform stays visible with the "no lists you can access" hint; all three users' complete trees compared as `"{level}:{name}"` strings; a list that becomes invisible explains itself and offers a working way out; structural actions disabled for a member with a reason and enabled for an admin; restricting a list through the dialog removes it for whoever was unticked; and a newly created space reaching admins only
+  - Whole-tree comparison rather than probing row by row, and with levels included — so a reparent could not masquerade as a visibility change. A spec that read `localStorage` for grant rows would pass with a sidebar rendering the wrong thing, which is the bug worth catching
+  - _Requirements: 8.3, 8.11, 8.12, 8.13, 8.14, 8.15, 8.16_
+- [x] 39.2 Fix the `aria-label` defect the first assertion found
+  - `UserSwitcher` set a descriptive `aria-label` on its trigger — "Switch user — currently Alice Nguyen, Admin" — and the DOM carried only "Switch user". `Menu` renders its trigger through `MenuButton as={Fragment}`, which merges the menu's own props onto the child, and an explicit prop there wins over one the child set itself. The code's comment said it was "named here rather than relying on the menu wrapper"; the wrapper was overwriting it
+  - Invisible to every existing test because they all match the name as a substring, and a substring of the short label is also a substring of the long one
+  - It mattered most where it was least visible: below `sm` the name and role are not rendered, so the accessible name is the only thing telling a screen-reader user who they are acting as (Requirement 8.2). Fixed by passing the descriptive string as `Menu`'s `label`
+  - _Requirements: 8.2, 17.1_
+- [x] 39.3 Add `closeTree` and `checkboxRow`, both for reasons worth recording
+  - **`closeTree`** — below `lg` the sidebar is a focus-trapping `Dialog`, and Headless UI hides the rest of the document from the accessibility tree while one is open, so the top bar's switcher is not merely covered but _unfindable by role_. `switchUser` closes the sheet for its caller
+  - It must test **attachment, not visibility**: the element carrying `role="dialog"` is `Drawer`'s `relative z-40` wrapper, and every child of it is `fixed`, so its own box collapses to zero height and `isVisible()` reports false while the sheet is plainly on screen. The first version used `isVisible()`, became a silent no-op, and left five specs timing out
+  - **`checkboxRow`** — `getByRole("checkbox")` resolves to the `<input>`, which `Checkbox` renders `sr-only` behind a styled `<span>`. Playwright's hit test at its 1px centre never resolves to it, so `check()`/`uncheck()` retries until the test times out. Click the label, assert the role
+  - _Requirements: 17.2, 20.4_
+- [x] 39.4 Skip the two dialog-driven specs on mobile, with the cause established
+  - Chromium's mobile emulation reports `window.innerWidth` 788 while `documentElement.clientWidth` and `visualViewport.width` both report 412 — an initial containing block about 1.9× the visible viewport. Media queries read the real width, so the app renders its phone layout correctly; but `Dialog`'s wrapper is `fixed inset-0 flex items-end`, so the panel lays out against the larger box and its footer lands near y=1533 in a visible area 839 tall. Playwright clicks in visual-viewport coordinates and the wrapper intercepts every attempt
+  - **Established as emulation rather than a bug** before skipping anything: with the create dialog open there is exactly one `fixed inset-0` wrapper and exactly one "Create" button, and both flows pass on chromium. A failure screenshot appearing to show two dialog footers was the same artifact, not two dialogs
+  - The navigation sheet never hit this because `Drawer` anchors its panel `inset-y-0 left-0`, so top-aligned content stays inside the visible area — which is also why no existing mobile spec caught it first
+  - _Requirements: 13.4_
+
+- [x] 40. `e2e/touch-drag.spec.ts` — close the oldest open item
+  - Tasks 14.7.1 and 26.10 carried "needs a real phone" across two phases. What they actually needed was a touch event stream: `page.touchscreen` offers only `tap()`, so `helpers/touch.ts` dispatches `Input.dispatchTouchEvent` over CDP
+  - The claim under test is a **discrimination**, not a feature. One `PointerSensor` serves mouse, pen and touch and resolves its constraint from `event.pointerType` — 8px of travel for a fine pointer, a 200ms press with 10px tolerance for a touch — so what matters is that the same gesture does different things either side of 200ms. The same 260px of travel pages the board at `holdMs: 30` and drags a card at `holdMs: 400`
+  - Three specs: a quick horizontal swipe pages the board and moves no card; a quick vertical swipe moves no card and raises no overlay; a held press reorders the column. **The first two are what would catch a regression** — a suite that only proved dragging works would pass with the activation delay removed entirely, which is precisely the state that makes the mobile board unusable
+  - The fixed `holdMs` wait is the one case where a sleep is the subject rather than a smell, since the threshold being straddled is itself a duration. Noted in the helper so it is not "cleaned up" later
+  - The vertical case asserts the _absence_ of a drag rather than a scroll offset: the seeded column may not overflow at this viewport, so a zero offset would be a false failure, while "no card moved and no overlay was raised" holds either way
+  - _Requirements: 20.8, 20.9_
+
+- [ ] 41. Decide what to do about the seed's reference date
+  - Seed dates derive from a fixed `SEED_NOW` of 2026-10-16 while the app reads real wall-clock time (`KanbanBoard.tsx`, `TaskListView.tsx`). The task the seed comments as "Due today — the warning tone on DueDateChip" renders as overdue in the danger tone, and will drift further
+  - Requirement 9.3 asks for "one overdue task and one task due today, so the UI and tests are stable across runs". The tests are stable; the UI is not
+  - **No test can see this, and that is the interesting part**: both harnesses pin the clock — `TZ=Asia/Kolkata` plus an explicit `SEED_NOW` in jsdom, `page.clock.setFixedTime(SEED_NOW)` in `e2e/fixtures.ts`. The determinism that makes the suites trustworthy is exactly what hides it. The comment in `e2e/fixtures.ts` calls SEED_NOW "a date in the future relative to real today", which was true when written and stopped being true on 2026-10-17
+  - Two fixes, and it is a product decision which: derive the seed from real `Date.now()` so the demo is always current, or pin the app's reference time so it always matches the fixtures. Left open because the choice changes what a reviewer sees on first load
+  - _Requirements: 9.3, 18.8_

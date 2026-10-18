@@ -24,16 +24,27 @@ export function UserSwitcher() {
   return (
     <Menu
       align="end"
-      label="Switch user"
+      /*
+       * The name goes on `Menu`'s `label`, not on an `aria-label` of the button
+       * below.
+       *
+       * `Menu` renders its trigger through `MenuButton as={Fragment}`, which
+       * merges the menu's own props onto the child element — and an explicit
+       * prop there wins over one the child set itself. So a button with its own
+       * `aria-label` had it silently overwritten, and this control announced
+       * "Switch user" while the code read as though it announced who was
+       * current. Caught by `e2e/permissions.spec.ts`, because jsdom tests all
+       * matched the name as a substring and a substring of the short label is
+       * still a substring of the long one.
+       *
+       * It matters most where it was least visible: below `sm` the name and
+       * role are not rendered at all, so the accessible name is the only thing
+       * telling a screen-reader user who they are acting as (Requirement 8.2).
+       */
+      label={`Switch user — currently ${currentUser.name}, ${currentUser.roleLabel}`}
       trigger={
         <button
           type="button"
-          /*
-           * Named here rather than relying on the menu wrapper, so the control
-           * the user focuses is the one carrying the name. The visible text is
-           * the user's name and role, which is not what the action *does*.
-           */
-          aria-label={`Switch user — currently ${currentUser.name}, ${currentUser.roleLabel}`}
           className={cn(
             "flex shrink-0 items-center gap-2 rounded-md py-1 pl-1 pr-1.5",
             "transition-colors motion-reduce:transition-none",

@@ -24,6 +24,34 @@ export async function openTree(page: Page): Promise<Locator> {
 }
 
 /**
+ * Closes the navigation sheet if it is open. No-op at `lg` and above.
+ *
+ * Below `lg` the sidebar is a focus-trapping `Dialog`, and Headless UI hides
+ * the rest of the document from the accessibility tree while one is open — so
+ * the top bar's controls are not merely covered, they are *unfindable by role*.
+ * Any spec that reads the tree and then touches the chrome has to close it
+ * first, which is why `switchUser` does this for its caller.
+ *
+ * **Attachment, not visibility.** The element carrying `role="dialog"` is
+ * Headless UI's `Dialog`, which `Drawer` renders as `relative z-40` — and every
+ * one of its children is `fixed`, so the dialog's own box collapses to zero
+ * height and `isVisible()` reports false while the sheet is plainly on screen.
+ * Checking `isVisible()` here made this a silent no-op and left five specs
+ * timing out on a top-bar control they could not reach.
+ *
+ * Escape rather than an overlay click: the overlay is what the sheet is
+ * covering, so clicking "outside" means guessing at coordinates.
+ */
+export async function closeTree(page: Page): Promise<void> {
+  const sheet = page.getByRole("dialog", { name: "Workspace navigation" });
+
+  if ((await sheet.count()) === 0) return;
+
+  await page.keyboard.press("Escape");
+  await sheet.waitFor({ state: "detached" });
+}
+
+/**
  * A row of the tree, addressed by its visible name.
  *
  * Note the tree's top level is the *spaces* — the workspace itself ("Acme") is
