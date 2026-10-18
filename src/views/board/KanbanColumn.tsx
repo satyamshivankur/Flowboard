@@ -8,7 +8,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { StatusPill } from "@/components/ui/StatusPill";
-import type { StatusColorToken } from "@/config/statusCategories";
+import {
+  STATUS_TOKEN_CLASSES,
+  type StatusColorToken,
+} from "@/config/statusCategories";
 import type { TaskCardViewModel } from "@/controllers/hooks/useBoard";
 import { cn } from "@/lib/cn";
 
@@ -160,17 +163,39 @@ function KanbanColumnImpl({
     <section
       aria-label={name}
       className={cn(
-        "flex shrink-0 snap-center flex-col gap-2",
+        "flex shrink-0 snap-center flex-col gap-2 rounded-xl border p-1.5",
         // One column at a time on a phone, side by side from `md`. Same
         // elements either way — no JavaScript breakpoint (Requirement 20.5).
         "w-column-mobile md:w-column",
+        /*
+         * The column takes its background and border from its own status,
+         * from the same map `StatusPill` reads — so the panel and the pill in
+         * its header are tinted by one declaration and cannot drift
+         * (Requirement 13.6). Written out in full there, never interpolated:
+         * `bg-${colorToken}` compiles to no CSS at all.
+         *
+         * The header is inside the tinted panel deliberately. Tinting only
+         * the card area would leave the status pill and count floating above
+         * a surface they are supposed to label.
+         */
+        STATUS_TOKEN_CLASSES[colorToken].surface,
       )}
     >
       <header className="flex h-8 shrink-0 items-center justify-between gap-2 px-1">
         <StatusPill name={name} colorToken={colorToken} variant="dot-label" />
 
         <span className="flex items-center gap-1">
-          <span className="text-xs font-medium tabular-nums text-ink-400">
+          {/*
+            `ink-600`, not the `ink-400` the rest of the app's secondary
+            metadata uses. This count sits on the column's status wash rather
+            than on a plain surface, and `ink-400` measures 4.47:1 against the
+            `status-todo` tint — under AA by two hundredths. `ink-400` is
+            calibrated for `surface`, `surface-sunken` and `surface-hover`; a
+            tinted panel is a fourth background, and the right response is to
+            use the ramp step that clears it rather than to nudge a global
+            token for one caller (Requirement 17.7).
+          */}
+          <span className="text-xs font-medium tabular-nums text-ink-600">
             {count}
           </span>
           <IconButton
@@ -190,9 +215,25 @@ function KanbanColumnImpl({
         className={cn(
           "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg p-0.5",
           "transition-colors motion-reduce:transition-none",
-          // Highlighting the column, not just the insertion point, is what
-          // makes a drop target legible mid-drag (Requirement 4.6).
-          isDragOver && "bg-brand-50/60 ring-1 ring-inset ring-brand-600/30",
+          /*
+           * Highlighting the column, not just the insertion point, is what
+           * makes a drop target legible mid-drag (Requirement 4.6).
+           *
+           * The ring carries this, not the background. The column now sits on
+           * a wash of its own status colour, and a drop highlight that is
+           * itself a pale tint has to beat four of them — including
+           * `status-active`, which is the same blue family as the brand. A
+           * full-strength `brand-600` ring is unmistakable on any of them,
+           * which is the property a tint cannot have.
+           *
+           * The background still shifts, so the change is legible without
+           * relying on the border alone.
+           *
+           * Last in the list on purpose: tailwind-merge keeps the final
+           * conflicting class, so this background has to come after the one it
+           * overrides — the ordering rule `Input` was fixed for.
+           */
+          isDragOver && "bg-brand-100 ring-2 ring-inset ring-brand-600",
         )}
       >
         {/*

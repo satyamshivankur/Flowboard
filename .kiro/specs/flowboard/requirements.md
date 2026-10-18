@@ -143,6 +143,16 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 4.2. Each column header SHALL show the status color indicator, status name, task count and an "add task" affordance.
 
+4.2.1. Each column SHALL additionally carry a background and a border derived from its own status colour, so a column is identifiable at a glance without reading its header. The header SHALL sit inside that surface rather than above it, since tinting only the card area would leave the status pill and count floating on a surface they are supposed to label.
+
+4.2.2. Both SHALL be a wash of the status's **own** colour token, not a value from a semantic ramp chosen to approximate it. The semantic `-50` tints that the status pill borrows are not distinguishable from one another at panel size — two of them are within four units per channel — and borrowing them also means a new status token needs a new ramp entry before it can have a column. Deriving the wash from the token makes two statuses exactly as different as their dots are.
+
+4.2.3. The border SHALL be the status signal and the background a family hint, not the reverse. This division is forced by the palette rather than chosen: two of the seeded status tokens differ almost entirely in one channel, so at any background alpha subtle enough to sit behind white cards their washes are indistinguishable, while at the border's alpha they are clearly different. Raising the background alpha until the washes separated would darken the panel enough to compete with the cards on it.
+
+4.2.4. WHERE a status colour is applied as a column surface, the ink ramp SHALL be verified against the composited result rather than against the bare token or a plain surface. A tinted panel is a background for body text — the column's count and its empty state sit on it — and an alpha means the colour text actually lands on is the composite over the shell's own background. A verification that compares against the opaque token measures a colour that never reaches a screen.
+
+4.2.5. The drop highlight of 4.6 SHALL remain distinguishable from every status surface, not merely from a plain one. It SHALL therefore lead with a full-strength ring rather than a pale background wash, since a wash has to beat four tints including one in the brand's own hue family.
+
 4.3. Each task card SHALL show title, priority indicator, assignee avatars, due date, and a subtask count when the task has subtasks. WHERE the task has subtasks, that count SHALL itself be the disclosure control of 4.13 rather than an inert badge — the same element reporting progress and offering the way in, instead of a number that names something the card gives no route to.
 
 4.4. WHEN a card is dragged to a different column and dropped, THEN the task's `status` SHALL be updated and its `position` set from the drop index.
@@ -494,6 +504,8 @@ The main axis SHALL NOT be shifted because doing so detaches the overlay from th
 13.5. The Tailwind `@theme` block SHALL define a token set covering `colors` (neutral ramp, brand/accent, semantic success/warning/danger/info, five priority tokens, four status tokens), `fontFamily`, `borderRadius`, `boxShadow` and `spacing` extensions.
 
 13.6. Priority and status colors SHALL be referenced exclusively through tokens, guaranteeing identical appearance in kanban cards, list rows and the drawer.
+
+13.6.1. The complete class strings for each token SHALL live in one declaration beside the token's semantics, covering every form that token is rendered in — dot, pill, text and column surface. A surface variant SHALL NOT be assembled by reusing the pill's, since the two differ in what they must carry: a pill sets its own text colour and a ring, a panel sets a border and leaves text to the ink ramp.
 
 13.7. The app SHALL present one coherent chrome: left sidebar, top bar containing breadcrumbs, view switcher, search, developer panel and user switcher, and a main content region.
 

@@ -1211,3 +1211,48 @@ Phase 12. Three views of one subtask, two of them editable.
   - Nothing failed, because no later test needed the tree. The next one that did — mine, navigating to Sprint 14 — failed with "unable to find role tree", which reads as a bug in the new test rather than in the old one. That is the expensive kind of leak
   - Restored in an `afterEach`, bound to `window` because `matchMedia` needs it as a receiver
   - _Requirements: 18.1, 21.22_
+
+---
+
+## Phase 20 — A column is coloured by its status
+
+Columns were white panels distinguished only by the pill in their header, so a
+four-status board read as four identical rectangles until you looked at the
+text. The request was a background and a border per status. Most of the work
+turned out to be in deciding _which_ colour, and in the three things that broke
+once a column stopped being a plain surface.
+
+- [x] 43. Tint the kanban column from its status
+- [x] 43.1 Add a `surface` form to `STATUS_TOKEN_CLASSES`
+  - Full class strings beside `dot`, `soft` and `text`, in the one declaration `StatusPill` already reads — so the panel and the pill in its header cannot be tinted by two sources (13.6.1)
+  - Written out, never interpolated: `bg-${colorToken}` compiles to no CSS at all, and the failure is silent
+  - Not a reuse of `soft`. A pill sets its own text colour and a `ring`; a panel sets a `border` and leaves text to the ink ramp, so reusing `soft` would have painted every card's container in the pill's text colour
+  - _Requirements: 4.2.1, 13.4, 13.6, 13.6.1_
+- [x] 43.2 Derive the wash from the status token, not a semantic ramp
+  - **The first version used the `-50` ramps `soft` borrows, and it was wrong.** `soft` pairs `status-active` with `bg-info-50` and `status-review` with `bg-brand-50` — `#eaf2fe` and `#eef4ff`. On a pill the differing text colour carries the distinction; on two full-height columns there is no text colour to help, and the panels were indistinguishable. Which defeats the whole feature
+  - A wash of the token cannot have that problem: the tint _is_ the status's colour, so two statuses are as different as their dots. It also means a new status token needs no new ramp entry before it can have a column
+  - Caught by looking at it in a browser, not by a test. Worth recording — the test I had written at that point asserted the tints were "visibly different" by luminance, and the blue and the violet differ by `0.0003` there
+  - _Requirements: 4.2.2_
+- [x] 43.3 Let the border carry the signal and the background hint
+  - `status-active` (`#2d7ff9`) and `status-review` (`#8b5cf6`) differ almost entirely in red. At a background alpha subtle enough to sit behind white cards their washes are ~7 RGB units apart; at the border's 25% they are ~25 apart
+  - So: `bg-status-x/10 border-status-x/25`. This is what the palette permits rather than a preference — raising the background until the washes separated meant a panel dark enough to compete with the cards on it, and dragged the header's count under AA
+  - `STATUS_SURFACE_ALPHA` and `STATUS_BORDER_ALPHA` are exported so the contrast test composites the real values instead of restating them
+  - _Requirements: 4.2.3_
+- [x] 43.4 Re-verify the ink ramp against the new background
+  - `contrast.test.ts` asserted the ramp against `surface`, `surface-sunken` and `surface-hover`. A tinted column is a fourth background, and the column's count and empty state are text on it
+  - The test now composites the wash over the shell's own `surface-sunken` — comparing against the opaque token would measure a colour that never reaches a screen
+  - **It found one failure**: `ink-400` at 4.47:1 on the `status-todo` wash, two hundredths under AA, that token being a mid grey and so the one that darkens its background most. The header count moved to `ink-600`; nudging a global token for one caller would have been the tail wagging the dog
+  - The failing case is kept as an assertion, so raising the alpha or re-pointing the count at `ink-400` has to come back through it — the same shape as the existing "`ink-300` is decorative only" test
+  - _Requirements: 4.2.4, 17.7_
+- [x] 43.5 Fix the drop highlight, which the tint had quietly broken
+  - It was `bg-brand-50/60` with `ring-1 ring-brand-600/30` — legible on white, nearly invisible on `status-active`'s wash, since that is the brand's own blue family
+  - Now `bg-brand-100` with `ring-2 ring-inset ring-brand-600`. A full-strength ring is unmistakable on any of the four tints; a pale wash cannot be
+  - Written after the base background in the `cn()` call, because tailwind-merge keeps the last of two conflicting classes — the ordering rule `Input` was fixed for in Phase 4
+  - _Requirements: 4.2.5, 4.6_
+- [x] 43.6 Test and look
+  - `KanbanColumn.test.tsx`: the panel carries each token's `surface` classes, class by class so a map entry gaining a utility needs no test edit; two statuses produce two different panels; the header is inside the tinted panel; and the highlight overrides the tint rather than blending into it
+  - "Two different panels" is also the interpolation guard — `bg-${colorToken}` would give every column an identical class list
+  - `contrast.test.ts`: ink on every composited tint, each wash distinct, each border distinct at 15+ channel units, and the ring clearing 3:1 on all four
+  - Verified in a browser at 1440px on Sprint 14, the only seeded list with all four statuses, and at 320px. The grey/blue/violet/green reading was the point and is not something jsdom can confirm
+  - One thing noticed and deliberately not fixed: at a 320px viewport the column overflows the screen, because `w-column-mobile` is `22rem` flat while design.md describes `min(88vw, 22rem)`. Pre-existing, unrelated to the tint, and a change to the paging geometry rather than to colour
+  - _Requirements: 4.2.1, 17.7, 20.14_

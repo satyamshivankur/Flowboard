@@ -1318,6 +1318,33 @@ classes: {
 
 `PRIORITY_CONFIG[p].classes`, `STATUS_TOKEN_CLASSES[token]` and `AVATAR_TOKEN_CLASSES[token]` are each read by every surface that renders that concept, so Requirement 13.6's "identical across kanban cards, list rows and the drawer" is structural rather than a convention — and still a single source of truth, since the classes sit in the same declaration as the semantics.
 
+### The column surface, and why it is not the pill's
+
+`STATUS_TOKEN_CLASSES` carries four forms per token — `dot`, `soft`, `text` and `surface`. The kanban column reads `surface`, which gives it a background and a border from its own status (4.2.1):
+
+```ts
+"status-active": {
+  dot: "bg-status-active",
+  soft: "bg-info-50 text-info-700 ring-status-active/20",
+  text: "text-status-active",
+  surface: "bg-status-active/10 border-status-active/25",
+},
+```
+
+Note that `surface` is a wash of the status token while `soft` borrows a semantic `-50` ramp. That difference is the interesting part, and the first attempt got it wrong by reusing the ramps:
+
+- `soft` pairs `status-active` with `bg-info-50` and `status-review` with `bg-brand-50`. Those are `#eaf2fe` and `#eef4ff`. On a pill the differing **text** colour carries the distinction, so nobody notices. On two full-height columns side by side there is no text colour to help, and the two panels were indistinguishable — which defeats the entire point of tinting per status.
+- Borrowing a ramp also means a new status token cannot have a column until someone picks a ramp entry to pair it with. A wash of the token needs nothing.
+
+So the wash is the token's own colour, and then the palette forces a second decision. `status-active` (`#2d7ff9`) and `status-review` (`#8b5cf6`) differ almost entirely in red. At an alpha subtle enough to sit behind white cards their washes land about seven RGB units apart; at the border's 25% they are twenty-five apart. **The border is the status signal and the background is a family hint** (4.2.3) — not a preference, just what those two colours permit. Pushing the background up until the washes separated would have produced a panel dark enough to fight the cards on it.
+
+Two consequences worth stating:
+
+- **The ink ramp gained a fourth background.** `contrast.test.ts` asserted the ramp against `surface`, `surface-sunken` and `surface-hover`; a tinted column is none of those, and the column's count and empty state are text on it. The test now composites the wash over the shell's own `surface-sunken` and asserts the result — and that found `ink-400` at 4.47:1 on the `status-todo` wash, two hundredths under AA, that token being a mid grey and so the one that darkens its background most. The count moved to `ink-600`. Nudging a global token to accommodate one new background would have been the tail wagging the dog; the failing case is kept as an assertion so re-pointing the count at `ink-400` has to come back through it.
+- **The drop highlight had to change.** It was `bg-brand-50/60` with a `ring-1`, which was legible against white and nearly invisible against `status-active`'s wash — same blue family. It is now `bg-brand-100` with a full-strength `ring-2 ring-brand-600`, because a ring at full strength is unmistakable on any of the four and a pale wash cannot be (4.2.5).
+
+The distinctness check is asserted on channel distance, not luminance. The first version used luminance and passed the blue and the violet as "different" by `0.0003` — they are the same lightness and plainly different colours, which is precisely the case the assertion exists to allow.
+
 ### Tokens — `src/index.css`
 
 The only stylesheet in the project. Tailwind v4 reads tokens from `@theme` and emits utilities for each one, so `--color-priority-urgent` becomes `bg-priority-urgent` / `text-priority-urgent`.

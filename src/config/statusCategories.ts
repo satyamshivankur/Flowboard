@@ -103,32 +103,80 @@ export const DEFAULT_STATUS_TEMPLATE: readonly DefaultStatusTemplate[] =
  * resolves classes by scanning source text and an interpolated name generates
  * no CSS. One map, read by the kanban column header, the card and the list row,
  * so a status cannot render two ways (Requirement 13.6).
+ *
+ * `soft` tints a pill; `surface` tints a whole panel — the kanban column. They
+ * are separate entries rather than one reused string because the two differ in
+ * what they must carry: a pill sets its own text colour and a `ring`, a panel
+ * sets a `border` and leaves text to the ink ramp. Reusing `soft` on a column
+ * would have painted every card's container in the pill's text colour.
+ *
+ * `surface` is a wash of the status's **own** token rather than one of the
+ * semantic `-50` ramps that `soft` borrows. That matters at panel size: `soft`
+ * pairs `status-review` with `bg-brand-50` and `status-active` with
+ * `bg-info-50`, which are `#eef4ff` and `#eaf2fe` — close enough that on a
+ * pill the differing text colour carries the distinction, and close enough
+ * that two full-height columns tinted with them were indistinguishable. A wash
+ * of the token cannot have that problem: the tint *is* the status's colour, so
+ * two statuses are as different as their dots are, and a new token needs no
+ * new ramp entry.
+ *
+ * The width of the border lives at the call site; only the colour belongs
+ * here, the same split `StatusPill` uses for its `ring-1 ring-inset`.
  */
 export const STATUS_TOKEN_CLASSES: Record<
   StatusColorToken,
-  { readonly dot: string; readonly soft: string; readonly text: string }
+  {
+    readonly dot: string;
+    readonly soft: string;
+    readonly text: string;
+    readonly surface: string;
+  }
 > = {
   "status-todo": {
     dot: "bg-status-todo",
     soft: "bg-surface-sunken text-ink-600 ring-border",
     text: "text-status-todo",
+    surface: "bg-status-todo/10 border-status-todo/25",
   },
   "status-active": {
     dot: "bg-status-active",
     soft: "bg-info-50 text-info-700 ring-status-active/20",
     text: "text-status-active",
+    surface: "bg-status-active/10 border-status-active/25",
   },
   "status-review": {
     dot: "bg-status-review",
     soft: "bg-brand-50 text-brand-700 ring-status-review/20",
     text: "text-status-review",
+    surface: "bg-status-review/10 border-status-review/25",
   },
   "status-done": {
     dot: "bg-status-done",
     soft: "bg-success-50 text-success-700 ring-status-done/20",
     text: "text-status-done",
+    surface: "bg-status-done/10 border-status-done/25",
   },
 };
+
+/**
+ * The alpha each `surface` wash uses, so a test can composite it honestly.
+ *
+ * Kept low on purpose. The wash is a family hint; the **border** is what
+ * identifies the status, and that split is forced by the palette rather than
+ * chosen: `status-active` and `status-review` differ almost entirely in their
+ * red channel, so at any alpha subtle enough to sit behind white cards the two
+ * washes are about seven RGB units apart — which is to say, not
+ * distinguishable. At the border's 25% they are twenty-five apart, which is.
+ *
+ * Pushing the wash up until the two tints separated would have meant a panel
+ * dark enough to fight the cards on it, and would have dragged the header's
+ * count below AA on the grey tint. `contrast.test.ts` composites both and
+ * asserts the division of labour, so raising this has to come back through it.
+ */
+export const STATUS_SURFACE_ALPHA = 0.1;
+
+/** The alpha the `surface` border uses. The status signal proper. */
+export const STATUS_BORDER_ALPHA = 0.25;
 
 /** Every status token, so the class map above can be checked for completeness. */
 export const STATUS_COLOR_TOKENS: readonly StatusColorToken[] = [
