@@ -30,6 +30,7 @@ import * as responsive from "./Responsive.stories";
 interface StoryLike {
   readonly render?: (args: Record<string, unknown>) => ReactNode;
   readonly args?: Record<string, unknown>;
+  readonly beforeEach?: () => void;
 }
 
 interface MetaLike {
@@ -56,10 +57,24 @@ function storiesOf(module: StoryModule): [string, () => ReactNode][] {
       const story = value as StoryLike;
       const args = { ...meta.args, ...story.args };
 
+      /*
+       * A story's own `beforeEach` runs first, because some of them *are* the
+       * setup: the list view's pagination and empty states install a different
+       * store before rendering, and without this they would render the plain
+       * seed and the story would pass for the wrong reason.
+       */
+      const setup = story.beforeEach;
+
       if (typeof story.render === "function") {
         const renderStory = story.render;
 
-        return [name, () => renderStory(args)];
+        return [
+          name,
+          () => {
+            setup?.();
+            return renderStory(args);
+          },
+        ];
       }
 
       const Component = meta.component;
