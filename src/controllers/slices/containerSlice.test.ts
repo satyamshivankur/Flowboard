@@ -630,3 +630,146 @@ describe("moveContainer", () => {
     expect(result.ok ? null : result.error.code).toBe("VALIDATION");
   });
 });
+
+/*
+ * Every action's "that no longer exists" guard, which was the bulk of the
+ * slice's uncovered branches.
+ *
+ * Worth covering rather than waving at: `unarchive` authorizes against the
+ * *parent* precisely because `canView` denies an archived node to everyone, and
+ * that indirection is only correct while the missing-container case still
+ * returns NOT_FOUND rather than resolving `parentId` off `undefined`.
+ */
+describe("stale ids fail closed", () => {
+  it("reports a missing container on every action that takes one", async () => {
+    const store = createTestStore();
+    const containers = store.getState().actions.container;
+    const before = domainSnapshot(store);
+
+    const results = await Promise.all([
+      containers.rename(alice, "li-gone", "Anything"),
+      containers.archive(alice, "li-gone"),
+      containers.unarchive(alice, "li-gone"),
+      containers.reorder(alice, "li-gone", 0),
+      containers.move(alice, "li-gone", SEED_IDS.folders.platform, 0),
+      containers.setAccess(alice, "li-gone", {
+        visibility: "private",
+        memberIds: [],
+      }),
+    ]);
+
+    for (const result of results) {
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.code).toBe("NOT_FOUND");
+    }
+
+    expect(domainSnapshot(store)).toEqual(before);
+  });
+
+  it("reports a missing parent when creating inside one", async () => {
+    const store = createTestStore();
+
+    const result = await store.getState().actions.container.create(alice, {
+      parentId: "fo-gone",
+      type: "list",
+      name: "Orphan",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("NOT_FOUND");
+  });
+
+  it("reports a missing destination when moving into one", async () => {
+    const store = createTestStore();
+
+    const result = await store
+      .getState()
+      .actions.container.move(alice, SEED_IDS.lists.backlog, "fo-gone", 0);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("archive and unarchive conflicts", () => {
+  it("refuses to archive something already archived", async () => {
+    const store = createTestStore();
+    const containers = store.getState().actions.container;
+
+    await containers.archive(alice, SEED_IDS.lists.backlog);
+
+    const again = await containers.archive(alice, SEED_IDS.lists.backlog);
+
+    expect(again.ok).toBe(false);
+    expect(again.ok ? null : again.error.code).toBe("CONFLICT");
+  });
+
+  it("refuses to unarchive something that is not archived", async () => {
+    const store = createTestStore();
+
+    const result = await store
+      .getState()
+      .actions.container.unarchive(alice, SEED_IDS.lists.backlog);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("CONFLICT");
+  });
+
+  /*
+   * Restoring a child under a still-archived parent would produce a live node
+   * nobody can reach, because visibility walks the whole chain. The message
+   * names the parent, since "restore that first" is useless without it.
+   */
+  it("refuses to restore a child while its parent is still archived", async () => {
+    const store = createTestStore();
+    const containers = store.getState().actions.container;
+
+    await containers.archive(alice, SEED_IDS.folders.q2);
+
+    const result = await containers.unarchive(alice, SEED_IDS.lists.backlog);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("CONFLICT");
+    expect(result.ok ? null : result.error.message).toContain("Q2 Launch");
+  });
+
+  it("restores a child once its parent is back", async () => {
+    const store = createTestStore();
+    const containers = store.getState().actions.container;
+
+    await containers.archive(alice, SEED_IDS.folders.q2);
+    await containers.unarchive(alice, SEED_IDS.folders.q2);
+
+    expect(
+      store.getState().containers[SEED_IDS.lists.backlog]?.archivedAt,
+    ).toBeNull();
+  });
+});
+
+/*
+ * The registry says a workspace is neither mutable nor grantable, and both
+ * refusals are resolved from that flag rather than from a type comparison —
+ * so these also assert that `CONTAINER_REGISTRY` is what decides.
+ */
+describe("the workspace node refuses what the registry forbids", () => {
+  it("cannot be renamed, archived or re-shared", async () => {
+    const store = createTestStore();
+    const containers = store.getState().actions.container;
+
+    const results = await Promise.all([
+      containers.rename(alice, SEED_IDS.workspace, "Renamed"),
+      containers.archive(alice, SEED_IDS.workspace),
+      containers.setAccess(alice, SEED_IDS.workspace, {
+        visibility: "private",
+        memberIds: [],
+      }),
+    ]);
+
+    for (const result of results) {
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.code).toBe("VALIDATION");
+    }
+
+    expect(store.getState().containers[SEED_IDS.workspace]?.name).toBe("Acme");
+  });
+});

@@ -1052,3 +1052,68 @@ Reference taken from shadcn/ui's Tooltip, which is a thin wrapper over Radix's `
   - The arithmetic is unit-tested and the placement is not, for the same reason the drag is not: jsdom reports every rect as zero, so the component's measure step resolves to "not rendered" in every test and the collision path is never actually walked there
   - Needs a visual check at the four edges — a sidebar tree row at the left, a breadcrumb at the top, the rightmost board column's avatars, and a card at the bottom of a column — plus one pass at a 150% root font size to confirm the converted gap and padding scale. Folds into 19.6
   - _Requirements: 13.4.1.1, 20.11_
+
+---
+
+## Phase 17 — Close the coverage gaps that are real
+
+`npm run coverage` reported 86.23% statements and 75.57% branches over the Model, Controller and config layers. Reading the per-file breakdown rather than the total turned up one slice with effectively no tests, one behavioural promise kept in only one of the three places that make it, and a long tail that is not a testing gap at all.
+
+The headline: `statusSlice.ts` at **7.4% statements, 0% branches**, while its own doc comment read "the actions exist and are tested". The design doc had already caught a version of that claim once and corrected the prose; this time the fact was corrected instead.
+
+- [x] 36. Cover the untested behaviour
+- [x] 36.1 `statusSlice.test.ts` — 7.4% → 100% lines
+  - `rename` and `reorder`: success, trimming, the shared container-name field rules, stale-id `NOT_FOUND`, and a member's `FORBIDDEN` against an untouched `domainSnapshot`
+  - That statuses are owned per list — renaming Backlog's "To do" leaves Sprint 14's alone, and reordering one list cannot disturb another's order. The bug an unfiltered `Object.values(draft.statuses)` would introduce
+  - That a denied list and an insufficient role produce _different_ messages, which is the one place in the suite that proves 8.11 for `status:update`
+  - That the slice's surface is exactly `rename` and `reorder`. There is deliberately no `create` or `delete` — creation happens inside `containerSlice.create` so a list and its statuses land together, and nothing may take a list below the per-category minimum. Asserting the surface is what stops either being added without that invariant being reconsidered
+  - **Why this one mattered most**: with no status editor in the UI, these actions are the only thing that exercises `status:update` at all. A change to the capability table could have opened or closed status editing and no test would have noticed
+  - _Requirements: 3.1, 8.9, 8.11, 18.12.1_
+- [x] 36.2 `sessionSlice.test.ts` — 69.8% → 100% statements
+  - The guards `persistence.test.ts` does not reach: a user who exists but holds no membership in the scoped workspace is a different failure from one who does not exist, and both must leave `currentUserId` alone. Same for `setActiveWorkspace`, where a workspace can be indexed in `workspaceIds` and still not be one this user belongs to — the guard that makes a workspace switcher safe to build
+  - `hydrate` lowering its flag when the adapter resolves `null`. Dropping the flag only inside the `if (stored)` branch would strand the app behind skeletons on a first visit, which is the one run where nothing is stored
+  - **`beginListLoad`'s last-write-wins rule needed a transport settled one call at a time.** The obvious test — start both loads, `await` the first — passes whether the guard exists or not, because awaiting flushes both continuations and the flag is already null by the time the assertion runs. Writing it the obvious way first is what surfaced that; the version that ships resolves each transport call by hand
+  - _Requirements: 8.2, 8.3, 14.2, 18.12.1_
+- [x] 36.3 Cover `moveTaskToList`'s subtask co-move
+  - Requirement 2.7 — a subtask follows its parent between lists — is promised by the drag path, the drawer and the card menu, and was kept by one test covering the drag. `moveTaskToList`'s own subtask loop (lines 427-436) was reached by nothing
+  - Now asserted from both ends: the subtasks land in the parent's new list with a status that belongs to it, and each keeps its _category_ where the destination has one rather than being dumped into the first status
+  - _Requirements: 2.6, 2.7_
+- [x] 36.4 Cover every slice's stale-id path
+  - A missing container, task or status returns `NOT_FOUND` from every action that takes one — `rename`, `archive`, `unarchive`, `reorder`, `move`, `setAccess`, `update`, `remove`, `moveToList`, `toggleComplete`, `duplicate` — with the domain snapshot unchanged
+  - Plus the adjacent cases: a missing create-parent, a missing move destination, a missing destination status, archiving something already archived, unarchiving something that is not, and refusing to restore a child while its parent is still archived
+  - `unarchive` authorizes against the _parent_, because `canView` denies an archived node to everyone. That indirection is only correct while the missing-container case still returns `NOT_FOUND` rather than resolving `parentId` off `undefined`, which is what this pins
+  - Also: the workspace node refuses rename, archive and `setAccess`, all three resolved from registry flags rather than a type comparison
+  - _Requirements: 18.4, 18.12.1, 21.4_
+- [x] 36.5 Cover the remaining validators and payload rejections
+  - `validatePriority` — the one task field that arrives as an `unknown` from a persisted payload or a URL. Asserted over `PRIORITIES` rather than three literals, so the set stays read from the registry
+  - `validateAssignees`' ceiling: exactly `MAX_ASSIGNEES` accepted, one past it refused, and the count reported _before_ the membership complaint so the message is the useful one
+  - `validateSubtaskList` with a parent that is gone
+  - `deserializeState`'s remaining rejections — non-object payload, missing or non-object state, each named entity map, a map stored as an array, each missing list, a non-string active workspace — plus the case that must still pass: an **empty** workspace id, which is what `createEmptyState` produces and is empty rather than corrupt
+  - _Requirements: 2.2, 9.11, 18.5_
+- [x] 36.6 Cover the registry's error paths
+  - `containerConfig` throwing on a type it does not describe; `taskHoldingType` refusing a registry with zero or two task holders; `isMutableType` and `isGrantableType` reading the flags
+  - `isPriority` and `isViewId` over their full registries — both have production callers, and both are why an unknown stored value falls back rather than propagating as a nonexistent key
+  - `roleBypassesChecks` denying a role the table does not describe, which is what `canView` relies on to deny rather than throw
+  - Reachable only through a synthetic registry, which is the point: the logic takes a registry argument precisely so it is not welded to the production one
+  - _Requirements: 18.9, 21.4, 21.7_
+
+- [x] 37. Say what is deliberately uncovered, as categories
+  - 86.23% → **91.88% statements, 82.53% branches**, 584 → 645 tests. The remaining gap is now describable rather than a list of line numbers
+  - Two categories stay uncovered by design (18.12.2): invariant `throw`s the pipeline makes unreachable — `"vanished mid-mutation"`, `"Cannot reorder a root container"` — and branches the type checker requires but control flow precludes, such as `statusSlice`'s `authorize` re-checking existence after `validate` refused it, `persistence.ts`'s re-narrow of `containers`, and `validateParentType`'s label fallback behind a lookup that throws first
+  - Naming them as categories is what keeps the rest readable. Arguing each uncovered line at review time is how a genuine gap ends up filed alongside the harmless ones
+  - The View stays outside the measurement: its tests assert behaviour through the real shell, and counting their lines would measure how much JSX a test happened to render
+  - _Requirements: 18.12, 18.12.2_
+
+- [ ] 38. Decide what to do about the unused exports
+  - The low numbers on `state.ts` (50%), `hierarchy.ts` (62%/38% branches), `result.ts`, `position.ts` line 53, `views.ts` line 36, `priorities.ts` line 123 and `statusCategories.ts` line 160 are **not** missing tests. They are exports with no caller anywhere — not in production, not in tests, not in the e2e suite:
+    - `state.ts` — `statusesInWorkspace`, `usersInWorkspace`, `grantsForResource`
+    - `hierarchy.ts` — `depthOf`, `siblingsOf`, `canMoveUnder`, `creatableChildTypes`
+    - `result.ts` — `isErr`
+    - `position.ts` — `byPosition`
+    - `views.ts` — `viewMeta`; `priorities.ts` — `priorityConfig`; `statusCategories.ts` — `isStatusCategory`
+  - Deliberately **not** tested (18.12.3). A test for an unused export records that dead code behaves as written, lifts the measured number, and makes the code harder to delete afterwards
+  - Two are worse than merely unused. `canMoveUnder` re-implements the rule `validateContainerMove` already owns and which is the one actually enforced — a second source of truth for "can this move", which Requirement 21.17's one-vocabulary rule exists to prevent. `grantsForResource` and `usersInWorkspace` are a parallel, unused implementation of scoping that `selectors.ts` does inline
+  - `ancestorsOf` is a separate case: used internally by `isDescendantOf`, exported for nobody. Narrowing the export is enough
+  - **Requirement 21.20 says lint SHALL fail on unused exports, and it does not** — the rule was never configured, which is why this accumulated silently. Removing the thirteen and wiring the rule is the fix that stops it recurring; `unwrap` went the other way this phase and now has callers in the two new slice tests
+  - Left open because deleting exported Model functions is a decision, not a cleanup
+  - _Requirements: 18.12.3, 21.13, 21.17, 21.20_

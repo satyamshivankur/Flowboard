@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SEED_IDS } from "@/model/seed";
 import { selectBoardColumns } from "@/model/selectors";
 import { scopeFor } from "@/test/fixtures";
-import { createTestStore } from "@/test/store";
+import { createTestStore, domainSnapshot } from "@/test/store";
 
 const alice = scopeFor(SEED_IDS.users.alice);
 
@@ -79,11 +79,9 @@ describe("updateTask", () => {
     const store = createTestStore();
     const before = store.getState().tasks[SEED_IDS.tasks.dueToday]?.updatedAt;
 
-    await store
-      .getState()
-      .actions.task.update(alice, SEED_IDS.tasks.dueToday, {
-        priority: "urgent",
-      });
+    await store.getState().actions.task.update(alice, SEED_IDS.tasks.dueToday, {
+      priority: "urgent",
+    });
 
     const after = store.getState().tasks[SEED_IDS.tasks.dueToday];
 
@@ -133,11 +131,9 @@ describe("updateTask", () => {
   it("repositions the task when its status changes", async () => {
     const store = createTestStore();
 
-    await store
-      .getState()
-      .actions.task.update(alice, SEED_IDS.tasks.dueToday, {
-        statusId: "st-sp-done",
-      });
+    await store.getState().actions.task.update(alice, SEED_IDS.tasks.dueToday, {
+      statusId: "st-sp-done",
+    });
 
     const columns = selectBoardColumns(
       store.getState(),
@@ -308,11 +304,7 @@ describe("moveTaskToList", () => {
 
     const result = await store
       .getState()
-      .actions.task.moveToList(
-        alice,
-        "t-011",
-        SEED_IDS.lists.backlog,
-      );
+      .actions.task.moveToList(alice, "t-011", SEED_IDS.lists.backlog);
 
     expect(result.ok).toBe(true);
     expect(result.ok ? result.data.statusRemapped : null).toBe(true);
@@ -406,5 +398,162 @@ describe("duplicateTask", () => {
     );
 
     expect(copiedSubtasks).toHaveLength(2);
+  });
+});
+
+/*
+ * Every action's "that no longer exists" guard.
+ *
+ * These are the paths a stale id takes — a card deleted in another tab, a
+ * drawer left open on something archived — and they were the largest block of
+ * uncovered branches in the slice. Each must fail closed with NOT_FOUND rather
+ * than throw or, worse, mutate something adjacent.
+ */
+describe("stale ids fail closed", () => {
+  it("reports a missing task on every action that takes one", async () => {
+    const store = createTestStore();
+    const tasks = store.getState().actions.task;
+    const before = domainSnapshot(store);
+
+    const results = await Promise.all([
+      tasks.update(alice, "t-gone", { title: "Anything" }),
+      tasks.remove(alice, "t-gone"),
+      tasks.move(alice, {
+        taskId: "t-gone",
+        toStatusId: "st-bk-todo",
+        toIndex: 0,
+      }),
+      tasks.moveToList(alice, "t-gone", SEED_IDS.lists.sprint14),
+      tasks.toggleComplete(alice, "t-gone"),
+      tasks.duplicate(alice, "t-gone"),
+    ]);
+
+    for (const result of results) {
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.code).toBe("NOT_FOUND");
+    }
+
+    expect(domainSnapshot(store)).toEqual(before);
+  });
+
+  it("reports a missing destination status on a move", async () => {
+    const store = createTestStore();
+
+    const result = await store.getState().actions.task.move(alice, {
+      taskId: SEED_IDS.tasks.dueToday,
+      toStatusId: "st-gone",
+      toIndex: 0,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("NOT_FOUND");
+  });
+
+  it("reports a missing destination list on a move-to-list", async () => {
+    const store = createTestStore();
+
+    const result = await store
+      .getState()
+      .actions.task.moveToList(alice, SEED_IDS.tasks.dueToday, "li-gone");
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("NOT_FOUND");
+  });
+});
+
+/*
+ * Requirement 2.7: a subtask follows its parent between lists, so the depth-1
+ * invariant and the same-list constraint both survive the move.
+ *
+ * `moveTask` covers the drag path already. This covers `moveTaskToList` — the
+ * drawer's and the card menu's path — whose subtask loop was reached by no
+ * test, which is to say the promise was made in three places and kept in one.
+ */
+describe("moveTaskToList carries subtasks", () => {
+  it("moves the subtasks with their parent and remaps their status", async () => {
+    const store = createTestStore();
+    const parentId = SEED_IDS.tasks.urgentOverdue;
+
+    const subtaskIds = Object.values(store.getState().tasks)
+      .filter((task) => task.parentTaskId === parentId)
+      .map((task) => task.id);
+
+    expect(subtaskIds).toHaveLength(2);
+
+    const result = await store
+      .getState()
+      .actions.task.moveToList(alice, parentId, SEED_IDS.lists.backlog);
+
+    expect(result.ok).toBe(true);
+
+    for (const id of subtaskIds) {
+      const subtask = store.getState().tasks[id];
+
+      // Same list as the parent, and a status that belongs to that list.
+      expect(subtask?.primaryListId).toBe(SEED_IDS.lists.backlog);
+      expect(store.getState().statuses[subtask?.statusId ?? ""]?.listId).toBe(
+        SEED_IDS.lists.backlog,
+      );
+      expect(subtask?.parentTaskId).toBe(parentId);
+    }
+  });
+
+  /*
+   * A subtask keeps its *category* where the destination has one, rather than
+   * being dumped into the first status. Sprint 14's "In review" has no Backlog
+   * equivalent and is the only category that cannot survive the trip.
+   */
+  it("preserves each subtask's category where the destination has it", async () => {
+    const store = createTestStore();
+    const parentId = SEED_IDS.tasks.urgentOverdue;
+
+    const before = Object.values(store.getState().tasks)
+      .filter((task) => task.parentTaskId === parentId)
+      .map((task) => ({
+        id: task.id,
+        category: store.getState().statuses[task.statusId]?.category,
+      }));
+
+    await store
+      .getState()
+      .actions.task.moveToList(alice, parentId, SEED_IDS.lists.backlog);
+
+    for (const { id, category } of before) {
+      const moved = store.getState().tasks[id];
+
+      expect(store.getState().statuses[moved?.statusId ?? ""]?.category).toBe(
+        category,
+      );
+    }
+  });
+});
+
+/*
+ * The guard Requirement 3.3.1 left in place deliberately. Creation now always
+ * gives a list its default statuses, so this is unreachable through the UI —
+ * but it is the honest refusal for a list whose statuses went missing some
+ * other way, such as a hand-edited `localStorage` payload, and the design doc
+ * commits to keeping it. Code kept for a reason should be tested for it.
+ */
+describe("a list with no statuses", () => {
+  it("refuses task creation with CONFLICT rather than filing it nowhere", async () => {
+    const store = createTestStore();
+
+    store.setState((state) => ({
+      ...state,
+      statuses: Object.fromEntries(
+        Object.entries(state.statuses).filter(
+          ([, status]) => status.listId !== SEED_IDS.lists.backlog,
+        ),
+      ),
+    }));
+
+    const result = await store.getState().actions.task.create(alice, {
+      listId: SEED_IDS.lists.backlog,
+      title: "Nowhere to go",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("CONFLICT");
   });
 });

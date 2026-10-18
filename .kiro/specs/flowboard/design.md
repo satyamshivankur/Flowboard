@@ -1684,8 +1684,25 @@ Vitest + jsdom + Testing Library, single-run via `npm run test`. `src/test/setup
 **Controller tests:**
 
 - `pipeline.test.ts` — denied mutations return `FORBIDDEN` and leave state deep-equal to the snapshot (18.4).
-- `taskSlice.test.ts` — cross-list move with status remapping, subtask cascade on delete, `updatedAt` bumping.
+- `taskSlice.test.ts` — cross-list move with status remapping, subtask cascade on delete, `updatedAt` bumping, and the subtask co-move on `moveTaskToList`. That last one is worth naming: Requirement 2.7's promise that a subtask follows its parent between lists is made by three surfaces and was kept by one test — the drag path. The drawer's and card menu's path ran the same loop with nothing watching it.
+- `statusSlice.test.ts` — rename and reorder, their stale-id and permission refusals, and that statuses are ordered against their own list only. This slice had 7% statement coverage and 0% branch coverage while its own doc comment claimed the actions "are tested"; it is also the only thing in the app that exercises `status:update`, since there is no status editor, so without it a change to the capability table could open or close status editing unnoticed.
+- `sessionSlice.test.ts` — the guards on `switchUser` and `setActiveWorkspace` (a user who exists but holds no membership is a different failure from one who does not exist), and `beginListLoad`'s last-write-wins rule. That last test needs a transport settled one call at a time: the obvious version — start both loads, `await` the first — cannot observe it, because awaiting flushes both continuations and the assertion passes whether the guard exists or not.
 - `rollback.test.ts` — `failNext` on a drag restores pre-drag state exactly (18.6).
+- Stale-id coverage across every slice: a missing container, task or status returns `NOT_FOUND` from every action that takes one, with the domain snapshot unchanged (18.12.1).
+
+### What is deliberately not covered
+
+Coverage is measured over `src/model`, `src/controllers` and `src/config` — the layers that hold logic. The View is excluded on purpose: its tests assert behaviour through the real shell, and counting their lines would measure how much JSX a test happened to render rather than what it proved.
+
+Within those three layers, two categories stay uncovered by design (18.12.2):
+
+- **Invariant `throw`s** — `"Task or status vanished mid-mutation"`, `"Cannot reorder a root container"`. The pipeline validates before it applies, so reaching these means the state changed between the two, which it cannot. A test would have to corrupt the draft to get there and would then be asserting against a state the app cannot produce.
+- **Branches the type checker needs and control flow precludes** — `statusSlice`'s `authorize` re-checking that a status exists after `validate` has already refused a missing one, `persistence.ts`'s re-narrowing of `containers` after the loop that checked it, `validateParentType`'s label fallback sitting behind a lookup that throws on an unknown type.
+
+Naming these as categories is what keeps the remaining gap readable. The alternative — arguing each uncovered line individually at review time — is how a genuine gap ends up filed alongside them.
+
+A third category is _not_ a testing gap at all: an export with no caller (18.12.3). Covering one would record that dead code behaves as written and make it harder to delete, so those are listed for removal rather than given tests.
+
 - `containerSlice.test.ts` — CRUD, archive cascade, and the default status set of 3.3.1 from three angles: a new list has the three statuses in category order and accepts a task; a folder gets none; a refused create leaves neither the container nor a status. The third is the one that pins "same mutation" — a follow-up write would pass the other two and fail only that one, which is why it is asserted against `domainSnapshot` rather than against the status count alone.
 
 **Access through the UI** (`views/sidebar/access.test.tsx`) — the two moments a person actually goes through, asserted by switching user and reading the tree rather than by inspecting grant rows. The grant arithmetic is already covered above; what this adds is that the dialog reaches it. Six cases: the create form opens restricted and says so in words; a space created with Carol ticked is visible to Carol and not to Bob; an admin's row is ticked, disabled and captioned; revoking Bob on Backlog leaves Sprint 14 his; the seed's explicit deny on Infra can be lifted; and the access menu item is disabled with a reason for a member.

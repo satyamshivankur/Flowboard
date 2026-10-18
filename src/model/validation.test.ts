@@ -4,7 +4,8 @@ import {
   CONTAINER_REGISTRY,
   type ContainerTypeConfig,
 } from "@/config/containers";
-import { MAX_NAME_LEN, MAX_TITLE_LEN } from "@/config/limits";
+import { MAX_ASSIGNEES, MAX_NAME_LEN, MAX_TITLE_LEN } from "@/config/limits";
+import { PRIORITIES } from "@/config/priorities";
 import { aContainer, aState, aStatus, aTask, aUser } from "@/test/fixtures";
 
 import {
@@ -15,6 +16,7 @@ import {
   validateListHoldsTasks,
   validateNoCycle,
   validateParentType,
+  validatePriority,
   validateStatusBelongsToList,
   validateSubtaskDepth,
   validateSubtaskList,
@@ -39,9 +41,7 @@ describe("validateContainerName", () => {
       "VALIDATION",
     );
     // Trailing whitespace should not push a valid name over the limit.
-    expect(
-      validateContainerName(`${"a".repeat(MAX_NAME_LEN)}    `),
-    ).toBeNull();
+    expect(validateContainerName(`${"a".repeat(MAX_NAME_LEN)}    `)).toBeNull();
   });
 });
 
@@ -311,5 +311,103 @@ describe("validateListHoldsTasks", () => {
 
   it("rejects a missing list", () => {
     expect(validateListHoldsTasks(state, "li-ghost")?.code).toBe("NOT_FOUND");
+  });
+});
+
+/*
+ * `validatePriority` guards the one task field that arrives as an unknown from
+ * outside the type system — a persisted payload, or a URL. `isPriority` is the
+ * registry lookup behind it, so this is also what proves the priority set is
+ * read from `PRIORITY_CONFIG` rather than restated here.
+ */
+describe("validatePriority", () => {
+  it("accepts every configured priority", () => {
+    for (const priority of PRIORITIES) {
+      expect(validatePriority(priority)).toBeNull();
+    }
+  });
+
+  it("rejects a string that is not a priority", () => {
+    const error = validatePriority("critical");
+
+    expect(error?.code).toBe("VALIDATION");
+    expect(error?.field).toBe("priority");
+  });
+
+  it("rejects values that are not strings at all", () => {
+    for (const value of [undefined, null, 3, {}, []]) {
+      expect(validatePriority(value)?.code).toBe("VALIDATION");
+    }
+  });
+});
+
+describe("validateAssignees — the ceiling", () => {
+  const members = Array.from({ length: MAX_ASSIGNEES + 1 }, (_, index) =>
+    aUser({ id: `u-${String(index)}` }),
+  );
+
+  const state = aState({
+    users: members,
+    memberships: members.map((user) => ({
+      workspaceId: "ws-test",
+      userId: user.id,
+      role: "member" as const,
+    })),
+  });
+
+  it("accepts exactly the limit", () => {
+    const ids = members.slice(0, MAX_ASSIGNEES).map((user) => user.id);
+
+    expect(validateAssignees(state, "ws-test", ids)).toBeNull();
+  });
+
+  it("rejects one past the limit, naming the field", () => {
+    const ids = members.map((user) => user.id);
+    const error = validateAssignees(state, "ws-test", ids);
+
+    expect(error?.code).toBe("VALIDATION");
+    expect(error?.field).toBe("assigneeIds");
+    expect(error?.message).toContain(String(MAX_ASSIGNEES));
+  });
+
+  /* The ceiling is checked before membership, so the message is the useful one. */
+  it("reports the count before complaining about unknown members", () => {
+    const ids = Array.from(
+      { length: MAX_ASSIGNEES + 1 },
+      (_, index) => `u-stranger-${String(index)}`,
+    );
+
+    expect(validateAssignees(state, "ws-test", ids)?.message).toContain(
+      "at most",
+    );
+  });
+});
+
+describe("validateSubtaskList — a parent that is gone", () => {
+  it("reports a missing parent as NOT_FOUND rather than accepting it", () => {
+    const state = aState({ tasks: [] });
+
+    expect(validateSubtaskList(state, "t-vanished", "li-a")?.code).toBe(
+      "NOT_FOUND",
+    );
+  });
+});
+
+/*
+ * The message falls back to the raw type name when the registry has no label
+ * for it. Reached only by a type the registry does not describe, which is
+ * exactly the state a half-finished registry edit leaves behind — so the
+ * fallback is there to keep the error legible rather than print "undefined".
+ */
+describe("validateParentType — an unlabelled type", () => {
+  it("names the raw type when the registry carries no label", () => {
+    const sparse: Partial<Record<string, ContainerTypeConfig<string>>> = {
+      ...CONTAINER_REGISTRY,
+    };
+
+    const error = validateParentType("list", "mystery", sparse);
+
+    expect(error?.code).toBe("VALIDATION");
+    expect(error?.message).toContain("mystery");
   });
 });

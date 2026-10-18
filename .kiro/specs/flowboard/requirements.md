@@ -647,6 +647,14 @@ The main axis SHALL NOT be shifted because doing so detaches the overlay from th
 
 18.11. The `PersistenceAdapter` SHALL be tested through an in-memory implementation, proving the store is not coupled to `localStorage`.
 
+18.12. Coverage SHALL be measured over the Model, Controller and config layers — the three that hold logic — and SHALL NOT be used as the measure of the View, which is covered by component tests whose value is behavioural rather than line-counted.
+
+18.12.1. Every Controller mutation SHALL have its stale-id path covered: a missing entity SHALL be shown to return `NOT_FOUND` and leave the Model deep-equal to its snapshot. These are the paths a card deleted in another tab or a drawer left open on an archived list actually take, and they are the cheapest possible place for a guard to be silently removed.
+
+18.12.2. Coverage SHALL NOT be pursued for code that is unreachable by construction, and such code SHALL be identifiable as a category rather than argued case by case. Two kinds qualify: a `throw` guarding an invariant the pipeline already enforces — "vanished mid-mutation" — and a branch a type checker requires but control flow precludes, such as an `authorize` step re-checking existence that `validate` has already refused. A test for either would have to corrupt the state it is testing in order to reach it, and would then assert the behaviour of a state the app cannot produce.
+
+18.12.3. Coverage SHALL NOT be pursued for an export with no caller. A test written to cover one records that dead code behaves as written, raises the measured number, and makes the code harder to delete — so an uncovered unused export SHALL be read as a signal to remove it or to use it, never as a missing test. This is the diagnostic Requirement 21.20's unused-export rule would otherwise provide, and the two SHALL be kept consistent: anything the rule would reject SHALL NOT be given a test instead.
+
 ---
 
 ## Requirement 19 — Documentation

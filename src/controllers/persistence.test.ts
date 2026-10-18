@@ -3,10 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createMemoryAdapter } from "@/adapters/persistence/memory";
 import { immediateTransport } from "@/adapters/transport/simulated";
 import { createFlowboardStore } from "@/controllers/store";
-import {
-  deserializeState,
-  serializeState,
-} from "@/model/persistence";
+import { deserializeState, serializeState } from "@/model/persistence";
 import { createSeedState, SEED_IDS } from "@/model/seed";
 import { scopeFor } from "@/test/fixtures";
 
@@ -67,7 +64,9 @@ describe("payload contract", () => {
     const result = deserializeState(broken);
 
     expect(result.ok).toBe(false);
-    expect(result.ok ? null : result.error.message).toMatch(/missing workspace/i);
+    expect(result.ok ? null : result.error.message).toMatch(
+      /missing workspace/i,
+    );
   });
 });
 
@@ -132,7 +131,10 @@ describe("store hydration", () => {
       autoPersist: false,
     });
 
-    store.setState((state) => ({ ...state, currentUserId: SEED_IDS.users.bob }));
+    store.setState((state) => ({
+      ...state,
+      currentUserId: SEED_IDS.users.bob,
+    }));
 
     await store.getState().actions.session.hydrate();
 
@@ -244,5 +246,109 @@ describe("resetToSeed", () => {
     );
     expect(store.getState().currentUserId).toBe(SEED_IDS.users.alice);
     expect(await adapter.load()).toBeNull();
+  });
+});
+
+/*
+ * The rest of the shape check.
+ *
+ * The validation is deliberately structural rather than exhaustive — it proves
+ * every collection exists and is the right kind of thing, not that every field
+ * of every entity is well-formed, because the goal is to reject a payload from
+ * an older build and fall back to the seed rather than re-implement the type
+ * system at runtime (Requirement 9.11).
+ *
+ * That makes each rejection a separate branch with its own message, and a
+ * payload reaching `hydrate` through a gap in them is the worst case here: the
+ * app would come up with a partially-populated store and no error to explain
+ * why half the tree is missing.
+ */
+describe("payload contract — the remaining rejections", () => {
+  /** A seed payload with one part of `state` replaced. */
+  function payloadWith(overrides: Record<string, unknown>): string {
+    const seed = createSeedState();
+
+    return JSON.stringify({
+      version: 1,
+      state: { ...seed, ...overrides },
+    });
+  }
+
+  it("rejects a payload that is not an object", () => {
+    for (const raw of ["42", '"a string"', "null", "[1,2]"]) {
+      const result = deserializeState(raw);
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.code).toBe("VALIDATION");
+    }
+  });
+
+  it("rejects a payload whose state is missing or not an object", () => {
+    for (const payload of [
+      JSON.stringify({ version: 1 }),
+      JSON.stringify({ version: 1, state: "nope" }),
+      JSON.stringify({ version: 1, state: [] }),
+    ]) {
+      const result = deserializeState(payload);
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.message).toMatch(/no state/i);
+    }
+  });
+
+  it("names the entity map that is missing", () => {
+    for (const key of ["containers", "tasks", "statuses", "users"]) {
+      const result = deserializeState(payloadWith({ [key]: undefined }));
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.message).toContain(key);
+    }
+  });
+
+  it("rejects an entity map stored as an array", () => {
+    const result = deserializeState(payloadWith({ tasks: [] }));
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.message).toContain("tasks");
+  });
+
+  it("names the list that is missing or not an array", () => {
+    for (const key of ["memberships", "grants", "workspaceIds"]) {
+      const asObject = deserializeState(payloadWith({ [key]: {} }));
+
+      expect(asObject.ok).toBe(false);
+      expect(asObject.ok ? null : asObject.error.message).toContain(key);
+
+      const absent = deserializeState(payloadWith({ [key]: undefined }));
+
+      expect(absent.ok).toBe(false);
+      expect(absent.ok ? null : absent.error.message).toContain(key);
+    }
+  });
+
+  it("rejects a non-string active workspace", () => {
+    for (const value of [undefined, 7, null, {}]) {
+      const result = deserializeState(
+        payloadWith({ activeWorkspaceId: value }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? null : result.error.message).toMatch(
+        /no active workspace/i,
+      );
+    }
+  });
+
+  /*
+   * An empty id is allowed through on purpose: that is what `createEmptyState`
+   * produces, and a payload with no workspace yet is empty rather than corrupt.
+   * The missing-workspace check is guarded on a non-empty id for exactly this.
+   */
+  it("accepts an empty active workspace id", () => {
+    const result = deserializeState(
+      payloadWith({ activeWorkspaceId: "", workspaceIds: [] }),
+    );
+
+    expect(result.ok).toBe(true);
   });
 });

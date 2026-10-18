@@ -10,18 +10,22 @@ import {
 import {
   CONTAINER_REGISTRY,
   canContain,
+  containerConfig,
   holdsTasks,
+  isGrantableType,
+  isMutableType,
   rootContainerType,
   taskHoldingType,
   type ContainerTypeConfig,
 } from "./containers";
 import { MAX_TASK_DEPTH, MIN_STATUSES_PER_LIST, POSITION_GAP } from "./limits";
-import { PRIORITIES, comparePriority } from "./priorities";
+import { PRIORITIES, comparePriority, isPriority } from "./priorities";
 import {
   DEFAULT_STATUS_TEMPLATE,
   STATUS_CATEGORIES,
   TERMINAL_STATUS_CATEGORY,
 } from "./statusCategories";
+import { DEFAULT_VIEW, VIEW_IDS, isViewId } from "./views";
 
 describe("container registry", () => {
   it("declares the documented hierarchy", () => {
@@ -188,5 +192,101 @@ describe("limits", () => {
   it("exposes named limits rather than inline literals", () => {
     expect(MAX_TASK_DEPTH).toBe(1);
     expect(POSITION_GAP).toBeGreaterThan(0);
+  });
+});
+
+/*
+ * The registry's error paths.
+ *
+ * Each of these exists because the registry is the single source of a rule the
+ * whole app reads, and a half-finished edit to it should fail loudly at the
+ * lookup rather than quietly somewhere downstream. They are unreachable with
+ * `CONTAINER_REGISTRY` itself, so a synthetic registry is the only way to
+ * reach them — which is also the point: the logic takes a registry argument
+ * precisely so it is not welded to the production one (Requirement 21.4).
+ */
+describe("registry lookups fail loudly", () => {
+  it("throws on a container type it does not describe", () => {
+    expect(() => containerConfig("mystery", CONTAINER_REGISTRY)).toThrow(
+      /unknown container type/i,
+    );
+  });
+
+  it("reports mutability and grantability from the registry", () => {
+    expect(isMutableType("list")).toBe(true);
+    expect(isMutableType("workspace")).toBe(false);
+
+    expect(isGrantableType("space")).toBe(true);
+    expect(isGrantableType("workspace")).toBe(false);
+  });
+
+  it("refuses a registry where no type holds tasks", () => {
+    const noHolder: Record<string, ContainerTypeConfig<string>> = {
+      workspace: {
+        ...CONTAINER_REGISTRY.workspace,
+        childTypes: [],
+        holdsTasks: false,
+      },
+    };
+
+    expect(() => taskHoldingType(noHolder)).toThrow(/exactly one/i);
+  });
+
+  it("refuses a registry where two types hold tasks", () => {
+    const twoHolders: Record<string, ContainerTypeConfig<string>> = {
+      ...CONTAINER_REGISTRY,
+      folder: { ...CONTAINER_REGISTRY.folder, holdsTasks: true },
+    };
+
+    expect(() => taskHoldingType(twoHolders)).toThrow(/exactly one/i);
+  });
+});
+
+/*
+ * The predicates that guard a value arriving from outside the type system — a
+ * persisted payload or a stored preference. Both have a production caller
+ * (`validatePriority` and `NavigationContext`), and both are the reason an
+ * unknown value falls back rather than propagating as a nonexistent key.
+ */
+describe("value predicates", () => {
+  it("recognises every configured priority and nothing else", () => {
+    for (const priority of PRIORITIES) {
+      expect(isPriority(priority)).toBe(true);
+    }
+
+    for (const value of ["critical", "", undefined, null, 0, {}]) {
+      expect(isPriority(value)).toBe(false);
+    }
+  });
+
+  it("recognises every registered view id and nothing else", () => {
+    for (const id of VIEW_IDS) {
+      expect(isViewId(id)).toBe(true);
+    }
+
+    expect(isViewId(DEFAULT_VIEW)).toBe(true);
+
+    for (const value of ["calendar", "", undefined, null, 1]) {
+      expect(isViewId(value)).toBe(false);
+    }
+  });
+});
+
+/*
+ * `roleBypassesChecks` reads a table that may not describe the role it is
+ * handed — which is what makes the capability table injectable, and what
+ * `canView` relies on to deny a role it has no policy for rather than throwing.
+ */
+describe("capability table lookups", () => {
+  it("denies the bypass to a role the table does not describe", () => {
+    expect(
+      roleBypassesChecks("ghost" as Parameters<typeof roleBypassesChecks>[0]),
+    ).toBe(false);
+  });
+
+  it("denies the bypass when the table describes the role without it", () => {
+    expect(
+      roleBypassesChecks("admin", { admin: new Set<Capability>([]) }),
+    ).toBe(false);
   });
 });
