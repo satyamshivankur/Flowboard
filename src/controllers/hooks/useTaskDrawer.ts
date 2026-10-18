@@ -25,6 +25,7 @@ import { useStore } from "../store";
  */
 export type { UpdateTaskInput };
 
+import { buildTaskCard, type TaskCardViewModel } from "./useBoard";
 import { usePermissions } from "./usePermissions";
 import { useScope } from "./useScope";
 
@@ -42,11 +43,22 @@ export interface DrawerMember {
   readonly avatarToken: AvatarColorToken;
 }
 
-export interface DrawerSubtask {
-  readonly id: string;
-  readonly title: string;
-  readonly isComplete: boolean;
-}
+/**
+ * A subtask row in the drawer.
+ *
+ * The board's card view-model rather than a shape of its own. The drawer's
+ * subtask rows carry the same inline controls as the list view's nested rows
+ * (Requirement 7.4.1), and those read `statusId`, `priority`, `dueDate` and
+ * resolved `assignees` — every one of which `buildTaskCard` already computes
+ * for the board and the table.
+ *
+ * It was `{ id, title, isComplete }`, which is why the drawer could only tick
+ * and delete a subtask. Widening it by hand would have made a fourth bespoke
+ * shape for one task's display state; reusing the existing one means a change
+ * to how a due date or an avatar resolves lands on all three surfaces at once
+ * (Requirement 13.6, 21.17).
+ */
+export type DrawerSubtask = TaskCardViewModel;
 
 export interface DrawerViewModel {
   readonly exists: boolean;
@@ -71,6 +83,11 @@ export interface DrawerViewModel {
   readonly canEdit: boolean;
   readonly readOnlyReason: string | undefined;
   readonly onFieldSave: (input: UpdateTaskInput) => Promise<Result<unknown>>;
+  /** Writes one field of a subtask, by id — `onFieldSave` only edits the parent. */
+  readonly onSubtaskUpdate: (
+    subtaskId: string,
+    input: UpdateTaskInput,
+  ) => Promise<Result<unknown>>;
   readonly onMoveToList: (toListId: string) => Promise<Result<MoveTaskResult>>;
   readonly onDelete: () => Promise<
     Result<{ readonly deletedIds: readonly string[] }>
@@ -87,6 +104,7 @@ export interface DrawerViewModel {
 const EMPTY_DRAWER: Omit<
   DrawerViewModel,
   | "onFieldSave"
+  | "onSubtaskUpdate"
   | "onMoveToList"
   | "onDelete"
   | "onAddSubtask"
@@ -156,11 +174,9 @@ export function useTaskDrawer(
         colorToken: status.color,
       }));
 
-      const subtasks = selectSubtasks(state, scope, task.id).map((subtask) => ({
-        id: subtask.id,
-        title: subtask.title,
-        isComplete: state.statuses[subtask.statusId]?.category === "done",
-      }));
+      const subtasks = selectSubtasks(state, scope, task.id).map((subtask) =>
+        buildTaskCard(state, subtask, now),
+      );
 
       return {
         task,
@@ -184,11 +200,33 @@ export function useTaskDrawer(
           .map((list) => ({ id: list.id, name: list.name })),
       };
     }
-  }, [state, scope, taskId]);
+    /*
+     * `now` is a dependency because `buildTaskCard` resolves the overdue tone
+     * against it. That makes a stable reference time the caller's
+     * responsibility — `TaskDrawer` fixes one at mount, as the board and the
+     * list view already do. A fresh `Date.now()` per render would re-run every
+     * selector in here on every render.
+     */
+  }, [state, scope, taskId, now]);
 
   const onFieldSave = useCallback(
     (input: UpdateTaskInput) => actions.update(scope, taskId ?? "", input),
     [actions, scope, taskId],
+  );
+
+  /**
+   * Writes one field of a subtask.
+   *
+   * Separate from `onFieldSave`, which closes over the open task's id and so
+   * could only ever edit the parent. Mirrors `useTaskTable.onQuickUpdate`
+   * deliberately: the drawer's subtask rows and the table's nested rows are
+   * now the same editing surface, and they should not reach the Controller by
+   * two differently-shaped routes (Requirement 7.4.1).
+   */
+  const onSubtaskUpdate = useCallback(
+    (subtaskId: string, input: UpdateTaskInput) =>
+      actions.update(scope, subtaskId, input),
+    [actions, scope],
   );
 
   const onMoveToList = useCallback(
@@ -224,6 +262,7 @@ export function useTaskDrawer(
   return useMemo(() => {
     const callbacks = {
       onFieldSave,
+      onSubtaskUpdate,
       onMoveToList,
       onDelete,
       onAddSubtask,
@@ -266,6 +305,7 @@ export function useTaskDrawer(
     permissions,
     now,
     onFieldSave,
+    onSubtaskUpdate,
     onMoveToList,
     onDelete,
     onAddSubtask,

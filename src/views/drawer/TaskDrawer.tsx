@@ -11,7 +11,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { AvatarGroup } from "@/components/ui/AvatarGroup";
@@ -67,6 +67,17 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
   const { openTaskId, openTask, closeTask } = useNavigation();
   const { confirm } = useConfirm();
   /*
+   * One reference time for the whole drawer, fixed at mount — as the board and
+   * the list view already do. It feeds the created/updated labels and the
+   * overdue tone on every subtask row, so reading the clock per render would
+   * let two rows disagree about whether today is today.
+   *
+   * It also matters for cost: `useTaskDrawer` resolves its subtask cards
+   * against `now`, so a fresh timestamp each render would re-run every
+   * selector behind the view-model on every render.
+   */
+  const now = useMemo(() => new Date().toISOString(), []);
+  /*
    * Which field is saving, not merely whether something is. A single global
    * spinner cannot tell a user that their status change landed while the
    * assignee change is still in flight (Requirement 7.7, 14.7).
@@ -76,7 +87,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
    */
   const { run, isPending } = usePendingAction();
   const toast = useToast();
-  const drawer = useTaskDrawer(openTaskId);
+  const drawer = useTaskDrawer(openTaskId, now);
 
   const open = openTaskId !== null && drawer.exists;
 
@@ -107,6 +118,65 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
     (field: PendingField | null, input: UpdateTaskInput) => {
       void run(field, () => view.onFieldSave(input), { retryable: true });
     },
+    [run, view],
+  );
+
+  /*
+   * The subtask rows' inline editors, keyed by subtask id so the row that was
+   * edited is the row that dims — the parent's own fields key by field name
+   * instead, since there is only ever one parent on screen.
+   *
+   * Grouped into one object for the same reason `TaskListView` does it: the
+   * table and the phone cards would otherwise have grown two subtly different
+   * sets of handlers, and this is now the third surface that edits a subtask.
+   */
+  const subtaskHandlers = useMemo(
+    () => ({
+      onRename: (subtaskId: string, title: string) => {
+        void run(subtaskId, () => view.onSubtaskUpdate(subtaskId, { title }), {
+          retryable: true,
+        });
+      },
+      onSetStatus: (subtaskId: string, statusId: string) => {
+        void run(
+          subtaskId,
+          () => view.onSubtaskUpdate(subtaskId, { statusId }),
+          { retryable: true },
+        );
+      },
+      onSetPriority: (subtaskId: string, priority: Priority) => {
+        void run(
+          subtaskId,
+          () => view.onSubtaskUpdate(subtaskId, { priority }),
+          { retryable: true },
+        );
+      },
+      onSetDueDate: (subtaskId: string, dueDate: string | null) => {
+        void run(
+          subtaskId,
+          () => view.onSubtaskUpdate(subtaskId, { dueDate }),
+          { retryable: true },
+        );
+      },
+      onToggleAssignee: (subtaskId: string, userId: string) => {
+        const subtask = view.subtasks.find(
+          (candidate) => candidate.id === subtaskId,
+        );
+
+        if (subtask === undefined) return;
+
+        const current = subtask.assignees.map((user) => user.id);
+        const next = current.includes(userId)
+          ? current.filter((id) => id !== userId)
+          : [...current, userId];
+
+        void run(
+          subtaskId,
+          () => view.onSubtaskUpdate(subtaskId, { assigneeIds: next }),
+          { retryable: true },
+        );
+      },
+    }),
     [run, view],
   );
 
@@ -479,9 +549,19 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             />
           </section>
 
+          {/*
+            Editable in place, with the same controls the list view's nested
+            rows and the board's subtask cards carry — so the drawer is no
+            longer the one subtask surface that can tick a subtask but not
+            re-prioritise it (Requirement 7.4.1).
+          */}
           <SubtaskList
             subtasks={view.subtasks}
+            now={now}
             canEdit={view.canEdit}
+            readOnlyReason={view.readOnlyReason}
+            statuses={view.statuses}
+            members={view.members}
             onToggle={(subtaskId) => {
               void run(subtaskId, () => view.onToggleSubtask(subtaskId), {
                 retryable: true,
@@ -494,6 +574,7 @@ export function TaskDrawer({ orderedTaskIds }: TaskDrawerProps) {
             }}
             onOpen={openTask}
             onDelete={handleDeleteSubtask}
+            {...subtaskHandlers}
             isPending={isPending}
           />
         </div>

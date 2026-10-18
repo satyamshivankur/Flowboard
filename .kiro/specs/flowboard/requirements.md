@@ -239,6 +239,16 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 7.4. The drawer SHALL allow editing of title, description, status, priority, assignees, due date and subtasks.
 
+7.4.1. "Editing subtasks" SHALL mean each subtask's own fields, not merely the set of them. Every subtask row in the drawer SHALL carry the same inline controls as a nested row in the list view — rename, complete, status, priority, due date, assignees, delete — applied in place, subject to the three omissions in 2.13 and to the same permission check as the parent's fields.
+
+7.4.1.1. The drawer previously offered create, toggle, open and delete only, on the reasoning that a second full field set nested inside a drawer would be a drawer inside a drawer. That comparison was wrong: these are inline chips on a row, the same controls a table cell holds, not a nested panel. The cost of the restriction was that the drawer was the only subtask surface that could tick a subtask but not re-prioritise it — while both surfaces a user reaches it from, the list view's nested rows (5.7) and the board's subtask cards (4.13), could. Three surfaces showing a subtask SHALL offer the same controls for it.
+
+7.4.1.2. The Controller SHALL expose a field write that takes a subtask id. A field-save callback bound to the open task's id cannot edit anything but the parent, and routing a subtask edit through one would write the parent's record while appearing to edit the child — a silent wrong-target mutation rather than a refusal. This SHALL be asserted directly: a priority change on a subtask leaves the parent's priority unchanged.
+
+7.4.1.3. The drawer's subtask rows SHALL use a stacked layout — a title line and a wrapping line of chips — rather than the list view's columns, because the drawer is at most `32.5rem` wide and is a bottom sheet below `48rem`. That is phone width, so the phone form of the list view (20.6) is the layout to follow, not the table.
+
+7.4.1.4. Making the subtask's title click-to-edit SHALL NOT remove the route to the subtask's own drawer, which 15.10.1 depends on. An explicit open control SHALL remain on the row.
+
 7.5. Title and description SHALL be edited in place with save on blur and on Cmd/Ctrl+Enter, and discard on Escape. Escape with unsaved field edits SHALL revert the field rather than close the drawer.
 
 7.6. Property controls SHALL be arranged in a consistent two-column label/value grid with uniform row height and spacing.
@@ -557,7 +567,9 @@ The main axis SHALL NOT be shifted because doing so detaches the overlay from th
 
 15.10. Card interactions SHALL have no hover-only paths to functionality: every quick action SHALL also be available from the drawer.
 
-15.10.1. For a subtask the drawer route is the subtask's **own** drawer, reached from its "Open details" entry or by clicking its card. The parent drawer's subtask section is deliberately narrower — create, toggle, open, delete — because a second full field set nested inside a drawer would be a drawer inside a drawer. The guarantee in 15.10 is therefore satisfied by a subtask being openable as a task in its own right, not by duplicating its fields into its parent's panel.
+15.10.1. For a subtask the drawer route is the subtask's **own** drawer, reached from its "Open details" entry, by clicking its card, or from the open control on its row in a parent's subtask list. That route SHALL exist on every surface that shows a subtask, because it is where the subtask's description and read-only metadata live — the one thing its inline controls do not cover. It SHALL NOT be the route required for an ordinary field change: status, priority, due date, assignees, rename, complete and delete are all available in place, on all three surfaces (4.13, 5.7, 7.4.1).
+
+15.10.1.1. The parent drawer's subtask section was previously restricted to create, toggle, open and delete on the grounds that a second full field set nested inside a drawer would be a drawer inside a drawer. Superseded by 7.4.1: an inline chip on a row is not a nested panel, and the restriction's actual effect was that the drawer alone could not change a subtask's priority. Where a subtask's fields are edited in place, the guarantee in 15.10 is satisfied by the controls themselves; the subtask's own drawer remains the route to its description and metadata, which is why 15.10.1 keeps it.
 
 ---
 

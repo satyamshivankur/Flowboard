@@ -1215,7 +1215,25 @@ describe("the off-canvas sidebar", () => {
    * This is the one breakpoint the app observes from JavaScript, so the test
    * overrides `matchMedia` rather than resizing anything — `SidebarContext`
    * reads exactly this query.
+   *
+   * The override is restored afterwards, which it was not: `window` is shared
+   * across the file, so leaving it in place put every later test into
+   * off-canvas mode, where the sidebar tree is absent from the DOM rather than
+   * merely off-screen. Tests that did not need the tree went on passing, which
+   * is what kept it hidden.
    */
+  // Bound, because `matchMedia` needs `window` as its receiver — reassigning
+  // the bare method would call it detached.
+  const realMatchMedia = window.matchMedia.bind(window);
+
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      configurable: true,
+      value: realMatchMedia,
+    });
+  });
+
   beforeEach(() => {
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -1390,6 +1408,232 @@ describe("the drawer's property pickers", () => {
 
     for (const item of statusItems) {
       expect(item.querySelector("[data-status-dot]")).not.toBeNull();
+    }
+  });
+});
+
+describe("the drawer's subtask rows", () => {
+  /*
+   * The drawer used to be the one subtask surface that could tick a subtask
+   * and delete it but not change a single one of its fields — while the two
+   * places a user reaches it from, the list view's nested rows and the board's
+   * subtask cards, both could (Requirement 7.4.1).
+   */
+
+  /** Opens the drawer on `t-009`, the seeded task that has subtasks. */
+  async function openParentDrawer(user: ReturnType<typeof userEvent.setup>) {
+    await selectSprint14(user);
+
+    const title = useStore.getState().tasks["t-009"]?.title ?? "";
+
+    expect(title.length).toBeGreaterThan(0);
+
+    await user.click(await waitFor(() => card(title)));
+
+    return screen.findByRole("dialog");
+  }
+
+  /** The `<li>` for one subtask, found via the control only it carries. */
+  function subtaskRow(drawer: HTMLElement, title: string): HTMLElement {
+    const checkbox = within(drawer).getByLabelText(`Mark "${title}" complete`);
+    const row = checkbox.closest("li");
+
+    expect(row).not.toBeNull();
+
+    return row as HTMLElement;
+  }
+
+  it("carries the same inline controls as a list row", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    const drawer = await openParentDrawer(user);
+    const subtask = useStore.getState().tasks["t-009-b"];
+    const title = subtask?.title ?? "";
+    const row = subtaskRow(drawer, title);
+
+    // Rename, status, priority, due date and assignees — all in the row.
+    expect(
+      within(row).getByRole("button", { name: "Edit title" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: /^Status: / }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: /^Priority: / }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: "Due date" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: /^Assignees: / }),
+    ).toBeInTheDocument();
+
+    /*
+     * And the route to the subtask's own drawer survives the title becoming an
+     * editor. That route is what satisfies Requirement 15.10.1 — a subtask is
+     * openable as a task in its own right, rather than having its description
+     * and metadata duplicated into its parent's panel.
+     */
+    expect(
+      within(row).getByRole("button", { name: `Open "${title}"` }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: `Delete "${title}"` }),
+    ).toBeInTheDocument();
+
+    // Requirement 2.13's three refusals are absent here, as in a table row.
+    for (const name of [/^Move up/, /^Move down/, /^Duplicate/, /^Move to "/]) {
+      expect(
+        within(row).queryByRole("button", { name }),
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it("writes a priority change to the subtask, not to its parent", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    const drawer = await openParentDrawer(user);
+    const title = useStore.getState().tasks["t-009-b"]?.title ?? "";
+    const parentPriorityBefore = useStore.getState().tasks["t-009"]?.priority;
+    const row = subtaskRow(drawer, title);
+
+    await user.click(within(row).getByRole("button", { name: /^Priority: / }));
+
+    const menu = await screen.findByRole("menu");
+
+    await user.click(within(menu).getByRole("menuitem", { name: "Low" }));
+
+    await waitFor(() => {
+      expect(useStore.getState().tasks["t-009-b"]?.priority).toBe("low");
+    });
+
+    /*
+     * The half that matters. `onFieldSave` closes over the drawer's own task
+     * id, so routing a subtask edit through it would have silently
+     * re-prioritised the parent instead — which is exactly why the subtask
+     * rows got a callback that takes an id.
+     */
+    expect(useStore.getState().tasks["t-009"]?.priority).toBe(
+      parentPriorityBefore,
+    );
+  });
+
+  it("writes a status change to the subtask", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    const drawer = await openParentDrawer(user);
+    const title = useStore.getState().tasks["t-009-b"]?.title ?? "";
+    const before = useStore.getState().tasks["t-009-b"]?.statusId ?? "";
+    const row = subtaskRow(drawer, title);
+
+    await user.click(within(row).getByRole("button", { name: /^Status: / }));
+
+    const menu = await screen.findByRole("menu");
+    const other = within(menu)
+      .getAllByRole("menuitem")
+      .find((item) => !item.getAttribute("aria-label")?.includes("selected"));
+
+    expect(other).toBeDefined();
+
+    await user.click(other as HTMLElement);
+
+    await waitFor(() => {
+      expect(useStore.getState().tasks["t-009-b"]?.statusId).not.toBe(before);
+    });
+
+    // A subtask stays in its parent's list, so its new status must be one of
+    // that list's own (Requirement 2.7, 3.5).
+    const statusId = useStore.getState().tasks["t-009-b"]?.statusId ?? "";
+
+    expect(useStore.getState().statuses[statusId]?.listId).toBe(
+      SEED_IDS.lists.sprint14,
+    );
+  });
+
+  it("renames a subtask from its row", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    const drawer = await openParentDrawer(user);
+    const title = useStore.getState().tasks["t-009-b"]?.title ?? "";
+    const row = subtaskRow(drawer, title);
+
+    await user.click(within(row).getByRole("button", { name: "Edit title" }));
+
+    const input = within(row).getByRole("textbox", { name: "Title" });
+
+    await user.clear(input);
+    await user.type(input, "Renamed from the drawer");
+    await user.tab();
+
+    await waitFor(() => {
+      expect(useStore.getState().tasks["t-009-b"]?.title).toBe(
+        "Renamed from the drawer",
+      );
+    });
+  });
+
+  /*
+   * Read-only has to reach the subtask rows too. The pickers degrade to inert
+   * badges rather than disabled buttons, so the row still reads as data
+   * (Requirement 7.10).
+   */
+  it("renders the subtask rows read-only when the user cannot edit", async () => {
+    const user = userEvent.setup();
+
+    // Same swap the read-only suite above uses: a `member` who may view and
+    // not edit, which the seed has no role for (Requirement 8.6, 21.7).
+    ROLE_CAPABILITIES.member = new Set<Capability>([]);
+
+    try {
+      renderShell();
+      await waitForBoard();
+
+      await user.click(screen.getByRole("button", { name: /switch user/i }));
+      await user.click(screen.getByRole("menuitem", { name: /Bob Mensah/ }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /switch user/i }),
+        ).toHaveTextContent("Member");
+      });
+
+      const drawer = await openParentDrawer(user);
+      const subtaskTitle = useStore.getState().tasks["t-009-b"]?.title ?? "";
+      const row = subtaskRow(drawer, subtaskTitle);
+
+      /*
+       * The pickers degrade to inert badges rather than disabled buttons, so
+       * the row still reads as data and nothing absorbs a click that was
+       * meant for something else (Requirement 7.10, 15.4).
+       */
+      for (const name of [/^Status: /, /^Priority: /, /^Assignees: /]) {
+        expect(
+          within(row).queryByRole("button", { name }),
+        ).not.toBeInTheDocument();
+      }
+
+      expect(
+        within(row).queryByRole("button", { name: "Edit title" }),
+      ).not.toBeInTheDocument();
+
+      // Opening it is still allowed — reading is not editing.
+      expect(
+        within(row).getByRole("button", { name: `Open "${subtaskTitle}"` }),
+      ).toBeInTheDocument();
+    } finally {
+      ROLE_CAPABILITIES.member = SEEDED_MEMBER_CAPABILITIES;
     }
   });
 });

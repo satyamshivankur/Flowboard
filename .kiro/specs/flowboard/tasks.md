@@ -482,8 +482,9 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - A successful move whose `statusRemapped` flag is set pushes an info toast explaining that the destination list had no matching status
   - _Requirements: 2.6, 7.9_
 - [x] 16.8 `SubtaskList` — create, toggle, open, delete, depth-1 enforced
-  - Deliberately narrower than the board's subtask cards (task 28) and the table's nested rows. Full field editing for a subtask is its _own_ drawer, reached from `onOpen`; nesting a second complete field set inside a drawer would be a drawer inside a drawer (15.10.1)
-  - _Requirements: 2.11, 2.12_
+  - **Widened in task 30.** The narrowing recorded below was reversed: the rows now carry the full inline control set, and `onOpen` survives as an explicit control because the subtask's own drawer is still where its description lives
+  - As shipped here, and kept as the reasoning that was wrong: deliberately narrower than the board's subtask cards (task 28) and the table's nested rows, because nesting a second complete field set inside a drawer would be a drawer inside a drawer (15.10.1)
+  - _Requirements: 2.11, 2.12, 7.4.1_
 - [x] 16.9 Read-only drawer state when the user lacks `task:update`, with an explanatory note
   - _Requirements: 7.10, 8.12_
 - [x] 16.10 Previous/next task keyboard navigation within the current view
@@ -1159,3 +1160,54 @@ Reading the brief's section 8 against the suites: its minimum — "unit/store te
   - **No test can see this, and that is the interesting part**: both harnesses pin the clock — `TZ=Asia/Kolkata` plus an explicit `SEED_NOW` in jsdom, `page.clock.setFixedTime(SEED_NOW)` in `e2e/fixtures.ts`. The determinism that makes the suites trustworthy is exactly what hides it. The comment in `e2e/fixtures.ts` calls SEED_NOW "a date in the future relative to real today", which was true when written and stopped being true on 2026-10-17
   - Two fixes, and it is a product decision which: derive the seed from real `Date.now()` so the demo is always current, or pin the app's reference time so it always matches the fixtures. Left open because the choice changes what a reviewer sees on first load
   - _Requirements: 9.3, 18.8_
+
+---
+
+## Phase 19 — Subtasks are editable in the drawer too
+
+The drawer's subtask section offered create, toggle, open and delete. Task 16.8
+recorded that as a deliberate narrowing: a second full field set nested inside a
+drawer would be a drawer inside a drawer.
+
+The comparison was the error. These are inline chips on a row — the same
+controls a table cell holds — not a nested panel. What the restriction actually
+produced was the one subtask surface that could tick a subtask but not
+re-prioritise it, while both surfaces a user reaches that drawer _from_ could:
+the list view's nested rows since Phase 6, and the board's subtask cards since
+Phase 12. Three views of one subtask, two of them editable.
+
+- [x] 42. Give the drawer's subtask rows the list view's control set
+- [x] 42.1 Add a field write that takes a subtask id
+  - `onSubtaskUpdate(subtaskId, input)` on `DrawerViewModel`, mirroring `useTaskTable.onQuickUpdate` deliberately so the drawer's rows and the table's rows reach the Controller by the same shaped route
+  - **This is the whole reason the feature needed a Controller change.** `onFieldSave` closes over the drawer's own `taskId`, so it can only ever edit the parent. Routing a subtask edit through it would not have thrown — it would have changed the parent's priority while the user watched the child's row. A silent wrong-target write, not a refusal
+  - Added to the `callbacks` object, the outer memo's deps, and the `Omit` union on `EMPTY_DRAWER` — that union names every callback, so a new one that is not listed stops the empty-state object type-checking
+  - _Requirements: 7.4.1, 7.4.1.2_
+- [x] 42.2 Make `DrawerSubtask` the view-model that already exists
+  - It was `{ id, title, isComplete }` — enough for a checkbox and nothing else. The rows need `statusId`, `priority`, `dueDate` and resolved `assignees`
+  - Now `type DrawerSubtask = TaskCardViewModel`, built by the exported `buildTaskCard` the board and the table already use. Widening it by hand would have made a fourth bespoke shape for one task's display state; this way the overdue tone, the avatar tokens and the priority token resolve once for all three surfaces
+  - _Requirements: 7.4.1, 13.6, 21.17_
+- [x] 42.3 Rebuild the row on the phone form's layout, not the table's
+  - The drawer is `32.5rem` at its widest and a bottom sheet below `md`. Five table columns do not fit that, so the rows follow `TaskCardList`'s stacked idiom — a title line, then a wrapping line of chips. The list view had already solved this exact width problem (20.6)
+  - Every control is an existing primitive: `InlineTextField`, `StatusPicker`, `PriorityPicker`, `DueDatePicker`, `AssigneePicker`, `Checkbox`. Nothing new was written at the control level, which is why the chips look and behave identically to the table's
+  - Read-only degrades through the primitives: each picker renders an inert badge rather than a disabled button, so nothing absorbs a click meant for something else (7.10, 15.4)
+  - The existing `aria-busy` plus `opacity-60` per row still applies, keyed by subtask id through `usePendingAction` — the fixed `h-11 can-hover:h-8` became padding, since the row is now two lines
+  - _Requirements: 7.4.1, 7.4.1.3, 7.10, 14.7, 20.6_
+- [x] 42.4 Keep the route to the subtask's own drawer
+  - The title becoming click-to-edit spends the click that used to open it, so the row gained an explicit open control beside delete, revealed by the same `can-hover` group
+  - Not decoration: the subtask's description and its created/updated metadata are the one thing the inline controls do not cover, and 15.10.1 depends on that route existing
+  - _Requirements: 7.4.1.4, 15.10, 15.10.1_
+- [x] 42.5 Fix the drawer's reference time
+  - `TaskDrawer` now fixes `now` at mount and passes it to `useTaskDrawer`, as `KanbanBoard` and `TaskListView` already did
+  - Correctness: every subtask row resolves "overdue" against it, so reading the clock per row would let two rows disagree about whether today is today
+  - Cost: `useTaskDrawer`'s `data` memo depends on `now` now that it builds card view-models, so a fresh timestamp per render would re-run every selector behind the view-model on every render
+  - _Requirements: 15.8_
+- [x] 42.6 Test it
+  - Five cases in `views.test.tsx`: control parity with a list row; a priority change landing on the subtask **and leaving the parent's priority unchanged**; a status change staying inside the parent's list status set; a rename committing on blur; and a view-only capability table degrading every picker to an inert badge while the open control survives
+  - The parent-unchanged assertion is the one that matters — it is the bug 42.1's signature prevents, and it would pass vacuously against a correct implementation while failing loudly against the obvious wrong one
+  - Requirement 2.13 needed no handling: move-to-list, reorder and duplicate were never offered by this list, exactly as they are never offered by a table row
+  - _Requirements: 7.4.1, 7.4.1.2, 18.7_
+- [x] 42.7 Fix the `matchMedia` leak the new tests exposed
+  - `the off-canvas sidebar` suite overrode `window.matchMedia` in a `beforeEach` and never restored it. `window` is shared across the file, so every test declared after it ran in off-canvas mode, where the sidebar tree is **absent from the DOM** rather than merely off-screen
+  - Nothing failed, because no later test needed the tree. The next one that did — mine, navigating to Sprint 14 — failed with "unable to find role tree", which reads as a bug in the new test rather than in the old one. That is the expensive kind of leak
+  - Restored in an `afterEach`, bound to `window` because `matchMedia` needs it as a receiver
+  - _Requirements: 18.1, 21.22_
