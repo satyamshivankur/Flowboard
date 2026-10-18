@@ -1,19 +1,10 @@
+import { RestrictToVerticalAxis } from "@dnd-kit/abstract/modifiers";
 import {
-  DndContext,
   KeyboardSensor,
+  PointerActivationConstraints,
   PointerSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+} from "@dnd-kit/dom";
+import { DragDropProvider, type DragEndEvent } from "@dnd-kit/react";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -41,6 +32,39 @@ export interface SidebarTreeProps {
   /** Called after a list is selected, so the mobile sheet can close itself. */
   readonly onAfterSelect?: () => void;
 }
+
+/**
+ * Input sensors, declared once at module scope so their identity is stable.
+ *
+ * A fine pointer waits for 8px of movement, so a click on a tree row still
+ * selects it; a touch waits for a 200ms press, which is what separates
+ * "long-press to drag" from "scroll the sidebar" (Requirement 20.8).
+ *
+ * px-exception: pointer-movement thresholds in device pixels, never rendered
+ * (Requirement 22.4).
+ */
+const SENSORS = [
+  PointerSensor.configure({
+    activationConstraints: (event) =>
+      event.pointerType === "touch"
+        ? [
+            new PointerActivationConstraints.Delay({
+              value: 200,
+              tolerance: 10,
+            }),
+          ]
+        : [new PointerActivationConstraints.Distance({ value: 8 })],
+  }),
+  KeyboardSensor,
+];
+
+/**
+ * A tree row only ever moves up or down, so the drag is pinned to one axis.
+ *
+ * Also declared at module scope: `modifiers` is re-registered when the array
+ * changes identity.
+ */
+const MODIFIERS = [RestrictToVerticalAxis];
 
 /** Index of a row among its own siblings, for resolving a drop position. */
 function siblingIndex(
@@ -83,20 +107,6 @@ export function SidebarTree({
   );
   const lookup = useMemo(() => allRows(rows), [rows]);
 
-  const sensors = useSensors(
-    // 8px before a drag starts, so a click on a tree row still selects it.
-    // px-exception: a pointer-movement threshold, not a rendered dimension.
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    // A press delay is what separates "long-press to drag" from "scroll the
-    // sidebar" on touch (Requirement 20.8).
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-
   const handleSelect = useCallback(
     (row: TreeRowViewModel) => {
       if (row.holdsTasks) {
@@ -124,11 +134,12 @@ export function SidebarTree({
    */
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const { active, over } = event;
+      const { source, target: over } = event.operation;
 
-      if (!over || active.id === over.id) return;
+      // Escape, or a drop that never found a row (Requirement 4.7).
+      if (event.canceled || !source || !over || source.id === over.id) return;
 
-      const dragged = lookup.find((row) => row.id === active.id);
+      const dragged = lookup.find((row) => row.id === source.id);
       const target = lookup.find((row) => row.id === over.id);
 
       if (!dragged || !target) return;
@@ -287,45 +298,41 @@ export function SidebarTree({
   const focused = focusedId ?? visible[0]?.id ?? null;
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      modifiers={[restrictToVerticalAxis]}
+    <DragDropProvider
+      sensors={SENSORS}
+      modifiers={MODIFIERS}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext
-        items={visible.map((row) => row.id)}
-        strategy={verticalListSortingStrategy}
+      {/*
+        No `SortableContext`: each row states its own index, which is also why
+        the flattened visible list is the one source of ordering here.
+      */}
+      <ul
+        role="tree"
+        aria-label="Workspace"
+        onKeyDown={handleKeyDown}
+        className="flex flex-col gap-0.5"
       >
-        <ul
-          role="tree"
-          aria-label="Workspace"
-          onKeyDown={handleKeyDown}
-          className="flex flex-col gap-0.5"
-        >
-          {visible.map((row) => (
-            <TreeItem
-              key={row.id}
-              row={row}
-              isSelected={row.id === selectedListId}
-              isExpanded={expandedIds.has(row.id)}
-              isFocused={row.id === focused}
-              collapsed={collapsed}
-              canEditStructure={permissions.can("container:update", row.id)}
-              structureReason={permissions.reasonFor(
-                "container:update",
-                row.id,
-              )}
-              onSelect={handleSelect}
-              onToggle={toggleExpanded}
-              onRename={onRename}
-              onCreateChild={onCreateChild}
-              onArchive={handleArchive}
-              onFocus={setFocusedId}
-            />
-          ))}
-        </ul>
-      </SortableContext>
-    </DndContext>
+        {visible.map((row, index) => (
+          <TreeItem
+            key={row.id}
+            row={row}
+            index={index}
+            isSelected={row.id === selectedListId}
+            isExpanded={expandedIds.has(row.id)}
+            isFocused={row.id === focused}
+            collapsed={collapsed}
+            canEditStructure={permissions.can("container:update", row.id)}
+            structureReason={permissions.reasonFor("container:update", row.id)}
+            onSelect={handleSelect}
+            onToggle={toggleExpanded}
+            onRename={onRename}
+            onCreateChild={onCreateChild}
+            onArchive={handleArchive}
+            onFocus={setFocusedId}
+          />
+        ))}
+      </ul>
+    </DragDropProvider>
   );
 }

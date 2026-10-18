@@ -1,4 +1,4 @@
-import { DndContext } from "@dnd-kit/core";
+import { DragDropProvider } from "@dnd-kit/react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -12,9 +12,9 @@ import type { TaskCardStatusOption } from "./TaskCard";
  * The column's drop highlight.
  *
  * The reported bug: dragging into a *non-empty* column showed no highlight.
- * The cause was reading this column's own `useDroppable().isOver`, which is
- * false whenever one of its cards wins the collision — so only empty columns,
- * having no cards to lose to, ever lit up.
+ * The cause was reading this column's own `useDroppable().isDropTarget`, which
+ * is false whenever one of its cards wins the collision — so only empty
+ * columns, having no cards to lose to, ever lit up.
  *
  * The highlight is now a prop the board resolves from the same drop target it
  * commits, which is what these assert: highlighted when told to be, whether or
@@ -58,7 +58,7 @@ function renderColumn({
   isDragOver: boolean;
 }) {
   return render(
-    <DndContext>
+    <DragDropProvider>
       <KanbanColumn
         statusId="todo"
         name="To do"
@@ -86,7 +86,7 @@ function renderColumn({
         onDelete={noop}
         onCreate={noop}
       />
-    </DndContext>,
+    </DragDropProvider>,
   );
 }
 

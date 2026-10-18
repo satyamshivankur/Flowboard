@@ -1,23 +1,29 @@
+import { configure, type Plugins } from "@dnd-kit/abstract";
 import {
-  DndContext,
-  DragOverlay,
+  Accessibility,
   KeyboardSensor,
+  PointerActivationConstraints,
   PointerSensor,
-  TouchSensor,
-  closestCorners,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type Announcements,
-  MeasuringStrategy,
-  type CollisionDetection,
+  type DragDropManager,
+} from "@dnd-kit/dom";
+import { move } from "@dnd-kit/helpers";
+import {
+  DragDropProvider,
+  DragOverlay,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
-} from "@dnd-kit/core";
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+} from "@dnd-kit/react";
+import { isSortable } from "@dnd-kit/react/sortable";
 import { Columns3 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, type UIEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type UIEvent,
+} from "react";
 
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -33,34 +39,72 @@ import type { ViewProps } from "../viewComponents";
 
 import { BoardPager } from "./BoardPager";
 import {
+  columnIdOf,
+  columnIdOfTarget,
   columnsFromPlan,
-  crossColumnMove,
-  finalDrop,
   isNoOpDrop,
+  locate,
   planFrom,
   type DragPlan,
-} from "./dragPlan";
+} from "./dragDrop";
 import { KanbanColumn } from "./KanbanColumn";
 import { TaskCard } from "./TaskCard";
 
 /**
- * Pointer first, geometry as the fallback.
+ * Input sensors, declared once at module scope.
  *
- * `closestCorners` alone measures from the *dragged card's* corners, so in a
- * non-empty column it almost always resolved to whichever card sat nearest the
- * column's top-left — which is why every cross-column drop landed at the top
- * regardless of where the pointer was.
+ * Stable identity matters: handing `DragDropProvider` a fresh array would
+ * unregister and re-register every sensor on each render of the board.
  *
- * `pointerWithin` answers the question actually being asked: what is under the
- * cursor. It returns nothing during a keyboard drag, where there is no pointer,
- * so `closestCorners` still backs it up.
+ * One `PointerSensor` covers mouse, pen and touch, but not with the same
+ * threshold — which is the point of resolving the constraint per event rather
+ * than configuring it once:
+ *
+ *   - A fine pointer waits for 8px of movement, so a click still opens the
+ *     card rather than nudging it.
+ *   - A touch waits for a 200ms press. Without that, every swipe on a phone
+ *     starts a drag and the board can no longer be scrolled at all
+ *     (Requirement 20.8). The 10px tolerance is what lets a swipe abort the
+ *     press instead of dragging the card along with it.
+ *
+ * px-exception: both numbers are pointer-movement thresholds in device
+ * pixels, never rendered (Requirement 22.4).
  */
-const boardCollisionDetection: CollisionDetection = (args) => {
-  const underPointer = pointerWithin(args);
+const SENSORS = [
+  PointerSensor.configure({
+    activationConstraints: (event) =>
+      event.pointerType === "touch"
+        ? [
+            new PointerActivationConstraints.Delay({
+              value: 200,
+              tolerance: 10,
+            }),
+          ]
+        : [new PointerActivationConstraints.Distance({ value: 8 })],
+  }),
+  /*
+   * Space picks up and drops; Escape cancels; arrows move. Enter is
+   * deliberately dropped from dnd-kit's defaults — it activates *and* ends a
+   * drag out of the box, which would collide with Enter opening the drawer
+   * (Requirement 4.11, 17.5).
+   */
+  KeyboardSensor.configure({
+    keyboardCodes: {
+      start: ["Space"],
+      cancel: ["Escape"],
+      end: ["Space"],
+      up: ["ArrowUp"],
+      down: ["ArrowDown"],
+      left: ["ArrowLeft"],
+      right: ["ArrowRight"],
+    },
+  }),
+];
 
-  return underPointer.length > 0 ? underPointer : closestCorners(args);
-};
-
+/** The accessibility plugin's options, which dnd-kit does not export. */
+type AccessibilityOptions = NonNullable<
+  ConstructorParameters<typeof Accessibility>[1]
+>;
 
 /**
  * The kanban board.
@@ -91,15 +135,21 @@ export function KanbanBoard({ listId }: ViewProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   /*
-   * The board's task order while a drag is live.
+   * The board's task order while a drag is live, in two places on purpose.
    *
-   * Held here rather than derived, because this *is* what gets rendered: the
-   * dragged card has to sit in the destination column's own `SortableContext`
-   * for the sorting strategy to open a gap for it. `onDragOver` moves it
-   * between columns and nothing else, which is what keeps this from looping —
-   * see the note in `dragPlan.ts`.
+   * The state is what gets rendered. The ref is the same value, readable
+   * without waiting for a render — which `onDragEnd` needs, because a drop
+   * that follows its last crossing closely must still commit the order the
+   * user was looking at rather than whatever a stale closure captured.
+   *
+   * Mirroring the move into React at all is not an optimisation, it is what
+   * keeps the app from crashing: dnd-kit previews a cross-column drag by
+   * moving the DOM node itself, and React then tries to remove a child that is
+   * no longer where it left it. Doing the move here instead makes dnd-kit
+   * stand down — see the note in `dragDrop.ts`.
    */
-  const [plan, setPlan] = useState<DragPlan | null>(null);
+  const plan = useRef<DragPlan | null>(null);
+  const [preview, setPreview] = useState<DragPlan | null>(null);
 
   /*
    * Which column the phone layout is showing. Derived from scroll position
@@ -140,62 +190,15 @@ export function KanbanBoard({ listId }: ViewProps) {
     scroller.scrollTo({ left: target.offsetLeft, behavior: "smooth" });
   }, []);
 
-  const sensors = useSensors(
-    // 8px before a drag starts, so a click still opens the card.
-    // px-exception: a pointer threshold, not a rendered dimension.
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    /*
-     * The press delay is what separates "long-press to drag a card" from
-     * "scroll the column" and "swipe to the next column". Without it every
-     * swipe on a phone starts a drag and the board becomes unusable
-     * (Requirement 20.8).
-     */
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 8 },
-    }),
-    /*
-     * Space picks up and drops; Escape cancels. Enter is deliberately removed
-     * from dnd-kit's defaults so it keeps a single meaning on a card — open
-     * the drawer — rather than both starting a drag and opening details
-     * (Requirement 4.11, 17.5).
-     */
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-      keyboardCodes: {
-        start: ["Space"],
-        cancel: ["Escape"],
-        end: ["Space"],
-      },
-    }),
-  );
-
   /*
-   * What the board shows: the plan while dragging, the store otherwise.
-   * Untouched columns keep their object identity, so a drag does not remount
-   * every card on the board.
-   */
-  const columns = useMemo(
-    () => columnsFromPlan(board.columns, plan),
-    [board.columns, plan],
-  );
-
-  const draggingColumnId = useMemo(() => {
-    if (plan === null || draggingId === null) return undefined;
-
-    return Object.keys(plan).find((statusId) =>
-      plan[statusId]?.includes(draggingId),
-    );
-  }, [plan, draggingId]);
-
-  /*
-   * Derived from the *store's* columns, not the previewed ones.
+   * Memoised on the store's columns, which during a drag means it never
+   * changes.
    *
-   * This is the single largest cost at a crossing. A status's id, name and
-   * colour cannot change during a drag, but reading them off the previewed
-   * columns produced a fresh array every time the plan changed — which gave
-   * every `TaskCard` a new `statuses` prop, defeated `memo` on all of them,
-   * and rebuilt every card's twenty-item menu at the exact moment the drag
-   * needed the main thread.
+   * Worth a note because getting this wrong was expensive: an earlier version
+   * derived it from the mid-drag preview, so every card got a new `statuses`
+   * prop on each crossing, `memo` was defeated on all of them, and every
+   * card's twenty-item menu was rebuilt at the exact moment the drag needed
+   * the main thread.
    */
   const statusOptions = useMemo(
     () =>
@@ -213,93 +216,172 @@ export function KanbanBoard({ listId }: ViewProps) {
     [board.columns],
   );
 
+  /*
+   * What the board renders: the preview while dragging, the store otherwise.
+   */
+  const columns = useMemo(
+    () => columnsFromPlan(board.columns, preview),
+    [board.columns, preview],
+  );
+
+  /*
+   * Which column to highlight, derived from the preview rather than tracked
+   * separately — so the highlight cannot disagree with where the card has
+   * actually been placed (Requirement 4.6).
+   */
+  const overColumnId = useMemo(
+    () =>
+      preview === null || draggingId === null
+        ? null
+        : columnIdOf(preview, draggingId),
+    [preview, draggingId],
+  );
+
   const dragging = useMemo(
     () =>
       draggingId === null
         ? undefined
-        : columns
+        : board.columns
             .flatMap((column) => column.tasks)
             .find((task) => task.id === draggingId),
-    [draggingId, columns],
+    [draggingId, board.columns],
   );
 
-  /** Spoken updates, so a drag is followable without sight (Req 4.11, 17.5). */
-  const announcements = useMemo(
-    (): Announcements => ({
-      onDragStart: ({ active }) => `Picked up task ${String(active.id)}.`,
-      onDragOver: ({ over }) =>
-        over ? `Moved over ${String(over.id)}.` : "No drop target.",
-      onDragEnd: ({ over }) =>
-        over ? `Dropped on ${String(over.id)}.` : "Drop cancelled.",
-      onDragCancel: () => "Drag cancelled. The task returned to its place.",
-    }),
-    [],
-  );
-
-  /**
-   * Tracks the destination as the pointer moves.
+  /*
+   * Human-readable names for everything a drag can touch.
    *
-   * `isBelowMidpoint` is the half of this that cannot be derived from ids: past
-   * the midpoint of the hovered card the insertion belongs after it, and
-   * without that the bottom slot of a column is unreachable by pointer.
+   * Held in a ref so the announcements below can stay a single stable object.
+   * dnd-kit re-registers its plugins when the plugin list changes identity,
+   * and rebuilding the announcements whenever a task is renamed would do that
+   * mid-drag.
    */
+  const names = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    const map = new Map<string, string>();
+
+    for (const column of board.columns) {
+      map.set(column.statusId, column.name);
+
+      for (const task of column.tasks) map.set(task.id, task.title);
+    }
+
+    names.current = map;
+  }, [board.columns]);
+
   /**
-   * Moves the dragged card between columns as the pointer crosses them.
+   * Spoken updates, so a drag is followable without sight (Req 4.11, 17.5).
    *
-   * Only between. Reordering inside a column is left to
-   * `verticalListSortingStrategy`, which does it with transforms and no React
-   * state — so once the card is in its destination this returns the same plan
-   * object, React bails out, and nothing re-measures. That early return is the
-   * whole defence against the update loop that crashed this before.
+   * dnd-kit's defaults announce raw ids — "Picked up draggable item t-014" —
+   * which is true and useless. These name the task and the column instead,
+   * which is the same information the sighted user gets.
+   */
+  const plugins = useMemo(() => {
+    const nameOf = (id: string | number) =>
+      names.current.get(String(id)) ?? String(id);
+
+    const announcements: NonNullable<AccessibilityOptions["announcements"]> = {
+      dragstart: ({ operation: { source } }) =>
+        source ? `Picked up ${nameOf(source.id)}.` : undefined,
+      dragover: ({ operation: { source, target } }) => {
+        if (!source || !target || source.id === target.id) return undefined;
+
+        const column = columnIdOfTarget(
+          isSortable(target) ? { id: target.id, group: target.group } : target,
+        );
+
+        return column === null
+          ? undefined
+          : `${nameOf(source.id)} is over ${nameOf(column)}.`;
+      },
+      dragend: ({ operation: { source }, canceled }) => {
+        if (!source) return undefined;
+
+        if (canceled) {
+          return `Cancelled. ${nameOf(source.id)} returned to its place.`;
+        }
+
+        /*
+         * Read from the ref, not from state: this fires alongside our own
+         * `onDragEnd` and there is no guarantee which of the two the monitor
+         * calls first. The plan is deliberately left in place until the next
+         * drag starts so that either order gives the same sentence.
+         */
+        const target =
+          plan.current === null
+            ? null
+            : locate(plan.current, String(source.id));
+
+        return target === null
+          ? `${nameOf(source.id)} was left where it was.`
+          : `Dropped ${nameOf(source.id)} in ${nameOf(target.statusId)}, position ${String(target.index + 1)}.`;
+      },
+    };
+
+    return (defaults: Plugins<DragDropManager>): Plugins<DragDropManager> => [
+      ...defaults,
+      configure(Accessibility, { announcements }),
+    ];
+  }, []);
+
+  /**
+   * Re-places the dragged card as the pointer crosses columns and cards.
+   *
+   * `move` is dnd-kit's own helper, and handing it the whole record is what
+   * makes an empty column reachable: the pointer there collides with the
+   * column's droppable rather than with any card, and `move` understands a
+   * target that is a *key* of the record as well as one that is an item in it.
+   * dnd-kit's own optimistic sorting does not — it returns early on a
+   * non-sortable target, which is exactly why a drop into an empty column
+   * used to do nothing at all (Requirement 4.9).
+   *
+   * It returns the same object when nothing should change, so hovering around
+   * inside a column produces no render. `onDragOver` also fires on target
+   * change rather than per pointer event, so this is a handful of renders per
+   * drag, not one per frame.
    */
   const handleDragOver = useCallback((event: DragOverEvent) => {
-    const { active, over } = event;
+    const current = plan.current;
 
-    if (!over) return;
+    if (current === null) return;
 
-    const activeRect = active.rect.current.translated;
-    const overRect = over.rect;
-    const isBelowMidpoint =
-      activeRect !== null &&
-      activeRect.top + activeRect.height / 2 >
-        overRect.top + overRect.height / 2;
+    const next = move(current, event);
 
-    setPlan((current) =>
-      current === null
-        ? current
-        : crossColumnMove(
-            current,
-            String(active.id),
-            String(over.id),
-            isBelowMidpoint,
-          ),
-    );
+    if (next === current) return;
+
+    plan.current = next;
+    setPreview(next);
   }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const { active, over } = event;
-      const committed = plan;
-
-      setDraggingId(null);
-      setPlan(null);
+      const { operation, canceled } = event;
+      const { source } = operation;
 
       /*
-       * No target means Escape, or a drop outside any column. Either way the
-       * card returns to where it was and nothing is written
-       * (Requirement 4.7).
+       * `plan.current` is deliberately *not* cleared here: the accessibility
+       * plugin's own `dragend` announcement reads it, and the monitor gives no
+       * ordering guarantee between the two. The next `onDragStart` replaces
+       * it.
        */
-      if (!over || committed === null) return;
+      const committed = plan.current;
 
-      const activeId = String(active.id);
+      setDraggingId(null);
+      setPreview(null);
+
+      /*
+       * Escape, or a drop outside any column. The card returns to where it
+       * was and nothing is written (Requirement 4.7).
+       */
+      if (canceled || !source || committed === null) return;
+
+      const activeId = String(source.id);
 
       /*
        * Resolved against the plan — the order actually on screen — so the
        * committed index is the one the user watched the card settle into.
-       * Recomputing from the store's columns is what previously disagreed with
-       * the board in front of them.
        */
-      const target = finalDrop(committed, activeId, String(over.id));
+      const target = locate(committed, activeId);
 
       // Dropped back where it started: nothing to write (Requirement 4.7).
       if (isNoOpDrop(board.columns, activeId, target) || target === null) {
@@ -317,7 +399,7 @@ export function KanbanBoard({ listId }: ViewProps) {
         { retryable: true },
       );
     },
-    [board, run, plan],
+    [board, run],
   );
 
   /*
@@ -486,28 +568,42 @@ export function KanbanBoard({ listId }: ViewProps) {
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={boardCollisionDetection}
-      accessibility={{ announcements }}
-      /*
-       * Re-measure while dragging. The card moving between columns changes
-       * their heights, and with the default measuring those rects are taken
-       * once at pickup — so every collision after the first crossing is
-       * computed against a stale layout, which is what made the drag feel like
-       * it was fighting the cursor.
-       */
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+    /*
+     * No `collisionDetection` and no `measuring` overrides any more, and both
+     * omissions are deliberate.
+     *
+     * The old board needed a custom detector because `closestCorners`
+     * measured from the dragged card's corners and therefore resolved to
+     * whichever card sat nearest the column's top-left — "it always lands at
+     * the top". It also needed `MeasuringStrategy.Always`, re-measuring every
+     * droppable on every move, to keep collisions honest as column heights
+     * changed; that constant re-measurement is a good part of what the drag
+     * felt like.
+     *
+     * dnd-kit's current defaults do both properly: collisions are
+     * pointer-first with a geometric fallback for keyboard drags, and the
+     * manager observes element geometry rather than re-reading it per frame.
+     *
+     * `plugins` extends the default set rather than replacing it, so
+     * auto-scrolling, the grab cursor, selection prevention and the drag
+     * feedback all stay — only the announcements are ours.
+     */
+    <DragDropProvider
+      sensors={SENSORS}
+      plugins={plugins}
       onDragStart={(event: DragStartEvent) => {
-        setDraggingId(String(event.active.id));
-        setPlan(planFrom(board.columns));
+        const { source } = event.operation;
+
+        if (!source) return;
+
+        const captured = planFrom(board.columns);
+
+        plan.current = captured;
+        setDraggingId(String(source.id));
+        setPreview(captured);
       }}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
-      onDragCancel={() => {
-        setDraggingId(null);
-        setPlan(null);
-      }}
     >
       <div className="flex h-full min-h-0 flex-col">
         {/*
@@ -529,13 +625,13 @@ export function KanbanBoard({ listId }: ViewProps) {
           {columns.map((column) => (
             <KanbanColumn
               key={column.statusId}
-              isDragOver={draggingColumnId === column.statusId}
+              isDragOver={overColumnId === column.statusId}
               statusId={column.statusId}
               name={column.name}
               colorToken={column.colorToken}
               /*
-               * The plan's length, so the header agrees with the cards under
-               * it while a card is mid-flight between columns.
+               * The preview's length, so the header agrees with the cards
+               * under it while a card is mid-flight between columns.
                */
               count={column.tasks.length}
               tasks={column.tasks}
@@ -574,21 +670,23 @@ export function KanbanBoard({ listId }: ViewProps) {
       </div>
 
       {/*
-        The overlay is a separate, tilted clone that follows the cursor while
-        the source slot keeps a subdued placeholder of identical size — so the
-        column height never jumps mid-drag (Requirement 15.6, 4.6).
-      */}
-      {/*
+        A separate, tilted clone follows the cursor while the real card stays
+        in its slot, subdued — so the column height never jumps mid-drag
+        (Requirement 15.6, 4.6). Rendering an overlay is also what tells
+        dnd-kit's feedback plugin not to lift the original element out of the
+        flow and leave a hidden placeholder behind it; the card the user sees
+        sitting in the column *is* the card.
+
         The default drop animation, not `null`. Suppressing it made every drop
-        land with a snap: the overlay vanished and the card reappeared
-        elsewhere in the same frame. Letting dnd-kit animate the overlay into
-        its final position is most of what "smooth" means here
-        (Requirement 14.11).
+        land with a snap: the clone vanished and the card reappeared elsewhere
+        in the same frame. Letting dnd-kit animate the clone into its final
+        position is most of what "smooth" means here (Requirement 14.11).
       */}
       <DragOverlay>
         {dragging && (
           <TaskCard
             task={dragging}
+            columnId={dragging.statusId}
             now={now}
             canEdit={board.canEdit}
             readOnlyReason={board.readOnlyReason}
@@ -612,6 +710,6 @@ export function KanbanBoard({ listId }: ViewProps) {
           />
         )}
       </DragOverlay>
-    </DndContext>
+    </DragDropProvider>
   );
 }

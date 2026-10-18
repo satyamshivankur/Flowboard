@@ -1,5 +1,5 @@
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableKeyboardPlugin } from "@dnd-kit/dom/sortable";
+import { useSortable } from "@dnd-kit/react/sortable";
 import { ChevronRight, MoreHorizontal, Plus } from "lucide-react";
 
 import { IconButton } from "@/components/ui/IconButton";
@@ -13,6 +13,8 @@ import { cn } from "@/lib/cn";
 
 export interface TreeItemProps {
   readonly row: TreeRowViewModel;
+  /** Position in the flattened visible tree, which is this row's sort order. */
+  readonly index: number;
   readonly isSelected: boolean;
   readonly isExpanded: boolean;
   readonly isFocused: boolean;
@@ -40,6 +42,7 @@ const INDENT: Record<number, string> = {
 
 export function TreeItem({
   row,
+  index,
   isSelected,
   isExpanded,
   isFocused,
@@ -53,17 +56,38 @@ export function TreeItem({
   onArchive,
   onFocus,
 }: TreeItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  /*
+   * The row is the sortable, but the *handle* is the label button inside it.
+   *
+   * Without that split the whole `li` is the drag activator, which means the
+   * chevron and the actions menu sit inside it — dnd-kit's pointer sensor
+   * ignores presses that start on an interactive descendant, so they still
+   * work, but a press on the row's padding would start a drag from dead space.
+   */
+  const { ref, handleRef, isDragSource } = useSortable({
     id: row.id,
-    data: { type: row.type, parentId: row.parentId },
+    index,
+    type: row.type,
+    accept: Object.keys(CONTAINER_REGISTRY),
     disabled: !canEditStructure,
+    /*
+     * Keyboard support, but no optimistic sorting — React stays the only
+     * thing that writes to this list.
+     *
+     * `OptimisticSortingPlugin` previews a sort by moving the DOM node itself.
+     * The board wants that preview and pays for it by mirroring the move into
+     * React state, which makes dnd-kit stand down (see `dragDrop.ts`). The
+     * tree cannot do the same: a drop here is not a sort at all but one of
+     * three outcomes — reorder among siblings, reparent into a container, or
+     * refuse — so there is no single list for a preview to rearrange.
+     *
+     * Leaving the plugin on meant dnd-kit shuffled the `<li>`s while React's
+     * model was untouched. A successful drop happened to come out right,
+     * because the commit re-rendered the tree in the new order. A *rejected*
+     * one did not: the store rolled back, React re-rendered nothing, and the
+     * sidebar was left showing an order the store disagreed with.
+     */
+    plugins: [SortableKeyboardPlugin],
   });
 
   const Icon = CONTAINER_REGISTRY[row.type].icon;
@@ -110,21 +134,19 @@ export function TreeItem({
 
   return (
     <li
-      ref={setNodeRef}
       /*
-       * The one inline `style` in this component, and one of the two documented
-       * exceptions in the project: dnd-kit computes a transform per frame, so
-       * it cannot be a class (Requirement 13.4). px-exception — these are
-       * dnd-kit's own pixel transforms, not an authored dimension.
+       * No inline transform style, and the documented `style` exception that
+       * went with it is gone (Requirement 13.4): dnd-kit writes the per-frame
+       * transform straight to this element, outside React.
        */
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      ref={ref}
       role="treeitem"
       aria-expanded={expandable ? isExpanded : undefined}
       aria-selected={isSelected}
       aria-level={row.depth}
       className={cn(
         "group relative list-none",
-        isDragging && "z-10 opacity-50",
+        isDragSource && "z-10 opacity-50",
       )}
     >
       <div
@@ -168,8 +190,7 @@ export function TreeItem({
 
         <button
           type="button"
-          {...attributes}
-          {...listeners}
+          ref={handleRef}
           tabIndex={isFocused ? 0 : -1}
           onFocus={() => {
             onFocus(row.id);

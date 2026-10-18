@@ -49,6 +49,19 @@ function card(title: string) {
   return screen.getByRole("button", { name: title });
 }
 
+/**
+ * The floating clone that follows the pointer, or `null` when no drag is live.
+ *
+ * dnd-kit renders it into a container of its own marked `data-dnd-overlay`,
+ * which is the only reliable way to tell the clone apart from the real card —
+ * they carry the same label by design.
+ */
+function overlayCard(): Element | null {
+  return (
+    document.querySelector("[data-dnd-overlay]")?.firstElementChild ?? null
+  );
+}
+
 async function waitForBoard() {
   await waitFor(() => {
     expect(card(BACKLOG.first)).toBeInTheDocument();
@@ -149,10 +162,10 @@ describe("board", () => {
   });
 
   /*
-   * The card spreads dnd-kit's `listeners` and then sets its own `onKeyDown`.
-   * That ordering replaces dnd-kit's keyboard activator unless the handler
-   * composes, and the failure is silent — the card keeps claiming to be
-   * sortable. This asserts the activator still runs (Requirement 4.11, 17.5).
+   * The card binds its own `onKeyDown` for Enter alongside dnd-kit's keyboard
+   * sensor, and a drag that cannot be started from the keyboard fails
+   * silently — the card goes on advertising itself as draggable. This asserts
+   * the activator still runs (Requirement 4.11, 17.5).
    */
   it("starts a keyboard drag on Space and announces it", async () => {
     const user = userEvent.setup();
@@ -164,16 +177,20 @@ describe("board", () => {
     await user.keyboard("[Space]");
 
     /*
-     * The drag overlay is a second clone of the card carrying the same label,
-     * so two matches means the keyboard activator fired and a drag is live.
+     * dnd-kit renders the floating clone into its own `[data-dnd-overlay]`
+     * container, and only while an operation is live — so the clone appearing
+     * there, labelled with this task, means the keyboard activator fired.
+     *
+     * Not `getAllByRole("button")` counting two matches, which is how this was
+     * written against dnd-kit 6: the clone is rendered with registration
+     * stubbed out, so the accessibility plugin never gives it the `role` the
+     * real card has. Counting roles would have passed for the wrong reason.
      */
     await waitFor(() => {
-      expect(
-        screen.getAllByRole("button", { name: BACKLOG.first }),
-      ).toHaveLength(2);
+      expect(overlayCard()).toHaveAttribute("aria-label", BACKLOG.first);
     });
 
-    expect(announcements()).toMatch(/picked up task|moved over/i);
+    expect(announcements()).toMatch(/picked up|is over/i);
 
     // And Escape puts it back without writing anything.
     await user.keyboard("{Escape}");
@@ -182,9 +199,9 @@ describe("board", () => {
       expect(announcements()).toMatch(/cancelled/i);
     });
 
-    expect(screen.getAllByRole("button", { name: BACKLOG.first })).toHaveLength(
-      1,
-    );
+    await waitFor(() => {
+      expect(overlayCard()).toBeNull();
+    });
   });
 });
 
@@ -684,7 +701,7 @@ describe("card quick actions", () => {
       // The card roots, not every button inside them — the cards carry inline
       // editors now, which are buttons of their own.
       const titles = [
-        ...todo.querySelectorAll('[aria-roledescription="sortable"]'),
+        ...todo.querySelectorAll('[aria-roledescription="draggable"]'),
       ].map((card) => card.getAttribute("aria-label"));
 
       // The first card now sits after the one that used to follow it.

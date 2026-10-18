@@ -1,9 +1,4 @@
-import {
-  defaultAnimateLayoutChanges,
-  useSortable,
-  type AnimateLayoutChanges,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useSortable } from "@dnd-kit/react/sortable";
 import {
   ArrowDown,
   ArrowUp,
@@ -47,20 +42,6 @@ import { dueDateAtDays } from "@/lib/date";
 const MAX_MENU_MEMBERS = 5;
 const MAX_MENU_LISTS = 5;
 
-/**
- * Animate layout changes even for a card that has just arrived in a column.
- *
- * dnd-kit's default bails out when `wasDragging` is false, which is the case
- * for a card newly mounted into another column's `SortableContext` — so the
- * cards above and below it snapped into their new places instead of sliding.
- * That snap, at both ends of a cross-column drag, is what read as jerky.
- *
- * Forcing the flag is the remedy dnd-kit's own multiple-containers example
- * uses; everything else about the default predicate is kept.
- */
-const animateLayoutChanges: AnimateLayoutChanges = (args) =>
-  defaultAnimateLayoutChanges({ ...args, wasDragging: true });
-
 export interface TaskCardStatusOption {
   readonly id: string;
   readonly name: string;
@@ -74,6 +55,14 @@ export interface TaskCardStatusOption {
 
 export interface TaskCardProps {
   readonly task: TaskCardViewModel;
+  /**
+   * The column this card is rendered in, which is its sortable *group*.
+   *
+   * dnd-kit's current release has no `SortableContext`: a card declares which
+   * list it belongs to, and that is what makes a drag across columns a
+   * transfer between groups rather than a reorder within one.
+   */
+  readonly columnId: string;
   readonly now: string;
   readonly canEdit: boolean;
   /**
@@ -118,17 +107,21 @@ export interface TaskCardProps {
 /**
  * Memoised, which is a performance fix rather than a habit.
  *
- * A drag re-renders the board on every pointer event, and each card carries
- * four pickers, a twenty-item menu and several tooltips. Rebuilding all of
- * them continuously is what made dragging feel heavy. This is only effective
- * because the board now hands down stable callbacks — with inline arrows the
- * props differed every render and this wrapper would have cost a comparison
- * and saved nothing.
+ * Each card carries four pickers, a twenty-item menu and several tooltips, and
+ * a board holds dozens of cards. Under dnd-kit 6 the board re-rendered on
+ * every pointer event of a drag and rebuilt all of that continuously; that no
+ * longer happens, but a crossing still re-renders the two columns involved to
+ * move the highlight, and this is what stops that touching their cards.
+ *
+ * Only effective because the board hands down stable callbacks — with inline
+ * arrows the props differed every render and this wrapper would have cost a
+ * comparison and saved nothing.
  */
 export const TaskCard = memo(TaskCardImpl);
 
 function TaskCardImpl({
   task,
+  columnId,
   now,
   canEdit,
   readOnlyReason,
@@ -151,18 +144,30 @@ function TaskCardImpl({
   onMoveToList,
   onDelete,
 }: TaskCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  /*
+   * One hook, and no context above it.
+   *
+   * `index` and `group` are what used to be implicit in which
+   * `SortableContext` the card happened to be mounted inside. Stating them
+   * means dnd-kit can displace the card's neighbours — in either column —
+   * without React re-rendering anything, which is the difference this
+   * migration was for: a drag no longer produces a render per pointer event.
+   *
+   * `accept` is narrowed to tasks so a card is never a drop target for
+   * anything else, and `type` is what the columns accept in turn.
+   */
+  const { ref, isDragSource } = useSortable({
     id: task.id,
-    data: { type: "task" },
+    index,
+    group: columnId,
+    type: "task",
+    accept: "task",
+    /*
+     * The overlay clone is rendered inside `DragOverlay`, where dnd-kit stubs
+     * out registration — but disabling it as well keeps it honestly inert
+     * rather than relying on that.
+     */
     disabled: !canEdit || isOverlay,
-    animateLayoutChanges,
   });
 
   /*
@@ -406,38 +411,23 @@ function TaskCardImpl({
   }
 
   /*
-   * dnd-kit registers its keyboard activator as `onKeyDown` inside
-   * `listeners`. Spreading `listeners` and then setting our own `onKeyDown`
-   * replaces it — which silently disabled keyboard dragging while
-   * `aria-roledescription="sortable"` went on advertising it. Composing is the
-   * fix: dnd-kit sees the event first, and we only act on what it ignored.
+   * Enter opens the drawer, and that is all this handler is for.
    *
-   * The cast is needed because dnd-kit types its listener map as
-   * `Record<string, Function>`, which carries no parameter information.
-   */
-  const startDrag = listeners?.["onKeyDown"] as
-    | ((event: KeyboardEvent<HTMLDivElement>) => void)
-    | undefined;
-
-  /*
-   * Space picks up and drops, Escape cancels, Enter opens the drawer. The
-   * board narrows dnd-kit's `start`/`end` codes to Space precisely so Enter
-   * means one thing here (Requirement 4.11, 15.4, 17.5).
+   * Space picks up and drops and Escape cancels, but neither passes through
+   * here any more: dnd-kit's keyboard sensor binds its own listener to this
+   * element, and its default activation guard already refuses any event whose
+   * target is not the element itself. That guard is the thing the previous
+   * implementation hand-rolled, badly — forwarding every keystroke to the
+   * activator meant typing a space into the card's inline title field started
+   * a drag and swallowed the character, so "Define the onboarding checklist"
+   * committed as "Definetheonboardingchecklist".
+   *
+   * The target check is still needed on *our* side, so Enter in the title
+   * field commits the title instead of opening the drawer behind it
+   * (Requirement 4.11, 15.4, 17.5).
    */
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    /*
-     * The target check comes *first*, and that ordering is the whole point.
-     *
-     * dnd-kit's keyboard activator fires on Space. Forwarding every keystroke
-     * to it meant typing a space into the card's inline title field started a
-     * drag and swallowed the character — "Define the onboarding checklist"
-     * committed as "Definetheonboardingchecklist". A drag should only ever
-     * begin from the card itself, never from something focused inside it.
-     */
     if (event.target !== event.currentTarget) return;
-
-    startDrag?.(event);
-
     if (event.defaultPrevented) return;
 
     if (event.key === "Enter") {
@@ -448,32 +438,31 @@ function TaskCardImpl({
 
   return (
     <Card
-      ref={setNodeRef}
       /*
-       * dnd-kit's per-frame transform — one of the three documented inline
-       * `style` exceptions (Requirement 13.4). px-exception: these are the
-       * library's own pixel offsets, not an authored dimension.
+       * No inline transform style any more, and the px-exception that went
+       * with it is gone too (Requirement 13.4, 22.4). dnd-kit now writes the
+       * per-frame transform straight to this element outside of React, which
+       * is precisely why a drag no longer re-renders the board.
        */
-      style={
-        isOverlay
-          ? undefined
-          : { transform: CSS.Transform.toString(transform), transition }
-      }
+      ref={ref}
       interactive
       elevated
-      dragging={isDragging}
+      /*
+       * `isDragSource` rather than `isDragging`: it stays true through the
+       * drop animation, so the slot the card came from does not flash back to
+       * full opacity for a frame while the clone is still flying into place
+       * (Requirement 15.6).
+       */
+      dragging={isDragSource}
       overlay={isOverlay}
       pending={isPending}
       padding="md"
       /*
-       * dnd-kit's attributes come first and already supply `role="button"`,
-       * `tabIndex` and `aria-roledescription` — the keyboard affordances the
-       * drag needs. Setting our own after would silently override them, which
-       * is what TypeScript flagged. Only `aria-label` is added on top, since
-       * dnd-kit cannot know the task's title (Requirement 15.5).
+       * `role`, `tabIndex`, `aria-roledescription` and `aria-describedby` are
+       * applied to this element by dnd-kit's accessibility plugin, which is
+       * why they are not spread here. `aria-label` is ours, since dnd-kit
+       * cannot know the task's title (Requirement 15.5).
        */
-      {...attributes}
-      {...listeners}
       aria-label={task.title}
       onClick={handleClick}
       onKeyDown={handleKeyDown}

@@ -1,10 +1,7 @@
-import { useDroppable } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { CollisionPriority } from "@dnd-kit/abstract";
+import { useDroppable } from "@dnd-kit/react";
 import { Inbox, Plus } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useState } from "react";
 
 import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -34,9 +31,9 @@ export interface KanbanColumnProps {
    * True when the drag currently points at this column.
    *
    * Resolved by the board rather than read from this column's own
-   * `useDroppable().isOver`. In a non-empty column the cards win the collision,
-   * so that flag stayed false and only empty columns ever highlighted — the
-   * reported bug (Requirement 4.6).
+   * `useDroppable().isDropTarget`. In a non-empty column the cards win the
+   * collision, so that flag stays false and only empty columns ever
+   * highlighted — the reported bug (Requirement 4.6).
    */
   readonly isDragOver: boolean;
   /** Whether a mutation on a given task is in flight (Requirement 14.7). */
@@ -69,11 +66,10 @@ export interface KanbanColumnProps {
 /**
  * Memoised alongside `TaskCard`.
  *
- * `columnsFromPlan` preserves the identity of columns a drag has not touched,
- * and every callback the board passes down is now stable — so a crossing
- * re-renders the two columns involved and leaves the rest alone. Without this
- * the preserved identity bought nothing, because the parent re-rendered
- * anyway.
+ * Every callback the board passes down is stable and the board's column data
+ * does not change during a drag, so the one prop a crossing alters is
+ * `isDragOver` — which means a crossing re-renders the two columns whose
+ * highlight changed and leaves the rest of the board alone.
  */
 export const KanbanColumn = memo(KanbanColumnImpl);
 
@@ -107,15 +103,6 @@ function KanbanColumnImpl({
   const [composing, setComposing] = useState(false);
   const [title, setTitle] = useState("");
 
-  /*
-   * `SortableContext` rebuilds its context value when `items` changes
-   * identity, and every `useSortable` below it re-renders when that happens.
-   * Passing `tasks.map(...)` inline meant a new array on every render of this
-   * column, so the whole column's cards re-rendered even when the task list
-   * was untouched.
-   */
-  const itemIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
-
   /* Bound to this column, and stable, so the cards below can be memoised. */
   const handleReorder = useCallback(
     (taskId: string, toIndex: number) => {
@@ -126,18 +113,27 @@ function KanbanColumnImpl({
 
   /*
    * The column is a droppable in its own right, not just a container of
-   * sortable cards. Without it, an empty column could never be a drop target —
-   * there would be nothing to collide with (Requirement 4.9).
+   * sortable cards: it is what the pointer collides with in a column's empty
+   * space, and the only target an empty column has at all
+   * (Requirement 4.9).
+   *
+   * `CollisionPriority.Low` is what keeps it from stealing the collision from
+   * its own cards. A column's rectangle contains every card in it, so at equal
+   * priority the column would often win and the insertion point would snap to
+   * the end of the list instead of following the pointer. Low priority means
+   * the cards answer whenever the pointer is over one, and the column answers
+   * only for the space between and below them.
+   *
+   * The *highlight* still comes from `isDragOver` rather than from
+   * `isDropTarget` here, for exactly that reason: whenever a card wins, this
+   * column is not the target even though the drag is plainly inside it
+   * (Requirement 4.6).
    */
-  /*
-   * Still a droppable in its own right: it is what the pointer collides with
-   * in a column's empty space, and the only target an empty column has
-   * (Requirement 4.9). The *highlight* comes from `isDragOver` instead, since
-   * this flag is false whenever a card wins the collision.
-   */
-  const { setNodeRef } = useDroppable({
+  const { ref } = useDroppable({
     id: statusId,
-    data: { type: "column", statusId },
+    type: "column",
+    accept: "task",
+    collisionPriority: CollisionPriority.Low,
   });
 
   function submit() {
@@ -179,7 +175,7 @@ function KanbanColumnImpl({
       </header>
 
       <div
-        ref={setNodeRef}
+        ref={ref}
         className={cn(
           "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg p-0.5",
           "transition-colors motion-reduce:transition-none",
@@ -188,34 +184,38 @@ function KanbanColumnImpl({
           isDragOver && "bg-brand-50/60 ring-1 ring-inset ring-brand-600/30",
         )}
       >
-        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-          {tasks.map((task, index) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              now={now}
-              canEdit={canEdit}
-              readOnlyReason={readOnlyReason}
-              statuses={statuses}
-              moveTargets={moveTargets}
-              members={members}
-              index={index}
-              columnLength={tasks.length}
-              isPending={isPending(task.id)}
-              onOpen={onOpen}
-              onToggleComplete={onToggleComplete}
-              onRename={onRename}
-              onSetPriority={onSetPriority}
-              onSetStatus={onSetStatus}
-              onToggleAssignee={onToggleAssignee}
-              onSetDueDate={onSetDueDate}
-              onReorder={handleReorder}
-              onDuplicate={onDuplicate}
-              onMoveToList={onMoveToList}
-              onDelete={onDelete}
-            />
-          ))}
-        </SortableContext>
+        {/*
+          No `SortableContext` wrapper: the cards declare their group and index
+          directly, which is what lets dnd-kit displace them across two
+          columns without either column re-rendering.
+        */}
+        {tasks.map((task, index) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            columnId={statusId}
+            now={now}
+            canEdit={canEdit}
+            readOnlyReason={readOnlyReason}
+            statuses={statuses}
+            moveTargets={moveTargets}
+            members={members}
+            index={index}
+            columnLength={tasks.length}
+            isPending={isPending(task.id)}
+            onOpen={onOpen}
+            onToggleComplete={onToggleComplete}
+            onRename={onRename}
+            onSetPriority={onSetPriority}
+            onSetStatus={onSetStatus}
+            onToggleAssignee={onToggleAssignee}
+            onSetDueDate={onSetDueDate}
+            onReorder={handleReorder}
+            onDuplicate={onDuplicate}
+            onMoveToList={onMoveToList}
+            onDelete={onDelete}
+          />
+        ))}
 
         {composing && (
           <Input

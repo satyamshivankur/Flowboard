@@ -33,7 +33,7 @@ function renderShell() {
 /**
  * Task titles in the "To do" column, in the order the board renders them.
  *
- * Selected by `aria-roledescription="sortable"`, which dnd-kit puts on the
+ * Selected by `aria-roledescription="draggable"`, which dnd-kit puts on the
  * card root. An earlier version collected every button in the column and
  * filtered by label prefix — which broke the moment the cards gained inline
  * editors for the title, priority, date and assignees, because those are
@@ -42,16 +42,14 @@ function renderShell() {
 function todoOrder(): string[] {
   const column = screen.getByRole("region", { name: "To do" });
 
-  return [
-    ...column.querySelectorAll('[aria-roledescription="sortable"]'),
-  ].map((card) => card.getAttribute("aria-label") ?? "");
+  return [...column.querySelectorAll('[aria-roledescription="draggable"]')].map(
+    (card) => card.getAttribute("aria-label") ?? "",
+  );
 }
 
 /** Arms the one-shot failure through the panel, as the demo does. */
 async function armFailure(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(
-    screen.getByRole("button", { name: "Simulation settings" }),
-  );
+  await user.click(screen.getByRole("button", { name: "Simulation settings" }));
   await user.click(
     await screen.findByRole("menuitem", { name: "Fail next operation" }),
   );
@@ -84,9 +82,7 @@ describe("the dev panel's forced failure", () => {
     renderShell();
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: FIRST }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: FIRST })).toBeInTheDocument();
     });
 
     await armFailure(user);
@@ -130,7 +126,9 @@ describe("the dev panel's forced failure", () => {
 
     await armFailure(user);
 
-    await user.click(screen.getByRole("button", { name: `Actions for ${FIRST}` }));
+    await user.click(
+      screen.getByRole("button", { name: `Actions for ${FIRST}` }),
+    );
     await user.click(
       within(await screen.findByRole("menu")).getByRole("menuitem", {
         name: "Move down",
@@ -173,7 +171,9 @@ describe("the dev panel's forced failure", () => {
 
     await armFailure(user);
 
-    await user.click(screen.getByRole("button", { name: `Actions for ${FIRST}` }));
+    await user.click(
+      screen.getByRole("button", { name: `Actions for ${FIRST}` }),
+    );
     await user.click(
       within(await screen.findByRole("menu")).getByRole("menuitem", {
         name: "Move down",
@@ -214,7 +214,9 @@ describe("the dev panel's forced failure", () => {
       await screen.findByRole("menuitem", { name: "Reset simulation" }),
     );
 
-    await user.click(screen.getByRole("button", { name: `Actions for ${FIRST}` }));
+    await user.click(
+      screen.getByRole("button", { name: `Actions for ${FIRST}` }),
+    );
     await user.click(
       within(await screen.findByRole("menu")).getByRole("menuitem", {
         name: "Move down",

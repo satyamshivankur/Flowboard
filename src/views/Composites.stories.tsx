@@ -1,5 +1,4 @@
-import { DndContext } from "@dnd-kit/core";
-import { SortableContext } from "@dnd-kit/sortable";
+import { DragDropProvider } from "@dnd-kit/react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { AvatarGroupMember } from "@/components/ui/AvatarGroup";
@@ -84,21 +83,12 @@ const CARD_HANDLERS = {
 };
 
 /**
- * Cards and columns are sortables, so they need a `DndContext` and a
- * `SortableContext` above them — the same two wrappers the board supplies.
+ * Cards and columns are sortables, so they need a provider above them — the
+ * one wrapper the board supplies. dnd-kit no longer needs a `SortableContext`
+ * listing the ids: each card states its own group and index.
  */
-function Sortable({
-  ids,
-  children,
-}: {
-  ids: readonly string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <DndContext>
-      <SortableContext items={[...ids]}>{children}</SortableContext>
-    </DndContext>
-  );
+function Sortable({ children }: { children: React.ReactNode }) {
+  return <DragDropProvider>{children}</DragDropProvider>;
 }
 
 const meta = {
@@ -133,7 +123,7 @@ export const Cards: Story = {
     ];
 
     return (
-      <Sortable ids={cards.map((entry) => entry.card.id)}>
+      <Sortable>
         <div className="flex flex-col gap-4">
           {cards.map((entry) => (
             <div key={entry.label} className="flex flex-col gap-1.5">
@@ -141,6 +131,7 @@ export const Cards: Story = {
               <div className="w-column">
                 <TaskCard
                   task={entry.card}
+                  columnId="st-bk-todo"
                   now={SEED_NOW}
                   canEdit
                   statuses={STATUSES}
@@ -162,10 +153,11 @@ export const Cards: Story = {
 /** The drag clone, which is tilted and elevated rather than a plain copy. */
 export const CardOverlay: Story = {
   render: () => (
-    <Sortable ids={["t-001"]}>
+    <Sortable>
       <div className="w-column">
         <TaskCard
           task={cardFor("t-001")}
+          columnId="st-bk-todo"
           now={SEED_NOW}
           canEdit
           statuses={STATUSES}
@@ -184,10 +176,11 @@ export const CardOverlay: Story = {
 /** Mid-save: subdued and `aria-busy`, but still readable and still usable. */
 export const CardPending: Story = {
   render: () => (
-    <Sortable ids={["t-005"]}>
+    <Sortable>
       <div className="w-column">
         <TaskCard
           task={cardFor("t-005")}
+          columnId="st-bk-todo"
           now={SEED_NOW}
           canEdit
           statuses={STATUSES}
@@ -206,10 +199,11 @@ export const CardPending: Story = {
 /** A card a member may see but not change: every control disables itself. */
 export const CardReadOnly: Story = {
   render: () => (
-    <Sortable ids={["t-004"]}>
+    <Sortable>
       <div className="w-column">
         <TaskCard
           task={cardFor("t-004")}
+          columnId="st-bk-todo"
           now={SEED_NOW}
           canEdit={false}
           readOnlyReason="Admins only"
@@ -230,7 +224,7 @@ export const Columns: Story = {
     const populated = ["t-001", "t-002", "t-003"].map(cardFor);
 
     return (
-      <Sortable ids={populated.map((card) => card.id)}>
+      <Sortable>
         <div className="flex h-96 gap-4">
           <KanbanColumn
             statusId="st-bk-todo"
