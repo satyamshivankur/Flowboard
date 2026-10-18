@@ -1,14 +1,12 @@
 import { POSITION_GAP } from "@/config/limits";
+import {
+  DEFAULT_STATUS_TEMPLATE,
+  type StatusCategory,
+  type StatusColorToken,
+} from "@/config/statusCategories";
 
 import { STATE_VERSION, type FlowboardState } from "./state";
-import type {
-  Container,
-  Grant,
-  Membership,
-  Status,
-  Task,
-  User,
-} from "./types";
+import type { Container, Grant, Membership, Status, Task, User } from "./types";
 
 /**
  * Deterministic seed fixtures.
@@ -227,24 +225,69 @@ function status(
   };
 }
 
-/*
- * Sprint 14 carries a fourth status, "In review", so that per-list status sets
- * are visibly distinct and the cross-list status remapping in Requirement 2.6
- * has something real to remap (Requirement 3.4).
+/** One extra status spliced into a list's default set, after a named category. */
+interface ExtraStatusSeed {
+  readonly id: string;
+  readonly name: string;
+  readonly category: StatusCategory;
+  readonly color: StatusColorToken;
+  /** The category this status is inserted after. */
+  readonly after: StatusCategory;
+}
+
+/**
+ * A list's status set, expanded from `DEFAULT_STATUS_TEMPLATE`.
+ *
+ * The same declaration `containerSlice.create` reads, so a seeded list and one
+ * created in the app cannot disagree about what the default set is
+ * (Requirement 3.3). Ids are built from the list's abbreviation and the
+ * category — `st-bk-todo` — rather than generated, because the fixtures are
+ * deliberately deterministic (Requirement 9.3).
+ *
+ * `extra` is how Sprint 14 gets its fourth status, which is what makes
+ * per-list sets visibly distinct (Requirement 3.4).
  */
+function statusesFor(
+  listId: string,
+  idPrefix: string,
+  extra?: ExtraStatusSeed,
+): Status[] {
+  const base = DEFAULT_STATUS_TEMPLATE.map((template) => ({
+    id: `st-${idPrefix}-${template.category}`,
+    name: template.name,
+    category: template.category,
+    color: template.color,
+  }));
+
+  const entries =
+    extra === undefined
+      ? base
+      : base.flatMap((entry) =>
+          entry.category === extra.after ? [entry, extra] : [entry],
+        );
+
+  return entries.map((entry, index) =>
+    status(
+      entry.id,
+      listId,
+      entry.name,
+      entry.category,
+      entry.color,
+      index + 1,
+    ),
+  );
+}
+
 const statuses: Status[] = [
-  status("st-bk-todo", "li-backlog", "To do", "todo", "status-todo", 1),
-  status("st-bk-active", "li-backlog", "In progress", "active", "status-active", 2),
-  status("st-bk-done", "li-backlog", "Done", "done", "status-done", 3),
-
-  status("st-sp-todo", "li-sprint14", "To do", "todo", "status-todo", 1),
-  status("st-sp-active", "li-sprint14", "In progress", "active", "status-active", 2),
-  status("st-sp-review", "li-sprint14", "In review", "active", "status-review", 3),
-  status("st-sp-done", "li-sprint14", "Done", "done", "status-done", 4),
-
-  status("st-in-todo", "li-infra", "To do", "todo", "status-todo", 1),
-  status("st-in-active", "li-infra", "In progress", "active", "status-active", 2),
-  status("st-in-done", "li-infra", "Done", "done", "status-done", 3),
+  ...statusesFor("li-backlog", "bk"),
+  ...statusesFor("li-sprint14", "sp", {
+    id: "st-sp-review",
+    name: "In review",
+    category: "active",
+    color: "status-review",
+    after: "active",
+  }),
+  ...statusesFor("li-infra", "in"),
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -276,7 +319,8 @@ function task(seed: TaskSeed): Task {
     statusId: seed.statusId,
     priority: seed.priority,
     assigneeIds: seed.assigneeIds ?? [],
-    dueDate: seed.dueInDays === undefined ? null : daysFromSeedNow(seed.dueInDays),
+    dueDate:
+      seed.dueInDays === undefined ? null : daysFromSeedNow(seed.dueInDays),
     position: pos(seed.index),
     createdAt: daysFromSeedNow(-14),
     updatedAt: daysFromSeedNow(-1),
@@ -494,7 +538,9 @@ const tasks: Task[] = taskSeeds.map(task);
 /* Assembly                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function byId<T extends { id: string }>(items: readonly T[]): Record<string, T> {
+function byId<T extends { id: string }>(
+  items: readonly T[],
+): Record<string, T> {
   return Object.fromEntries(items.map((item) => [item.id, item]));
 }
 

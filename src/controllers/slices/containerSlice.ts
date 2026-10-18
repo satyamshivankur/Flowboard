@@ -1,12 +1,14 @@
 import { nanoid } from "nanoid";
 
-import { CONTAINER_REGISTRY } from "@/config/containers";
+import { CONTAINER_REGISTRY, holdsTasks } from "@/config/containers";
+import { POSITION_GAP } from "@/config/limits";
+import { DEFAULT_STATUS_TEMPLATE } from "@/config/statusCategories";
 import { childContainers, descendantContainers } from "@/model/hierarchy";
 import { requireCapability } from "@/model/permissions";
 import { positionForIndex, sortByPosition } from "@/model/position";
 import type { AppError, Result } from "@/model/result";
 import { findContainer, type MutableFlowboardState } from "@/model/state";
-import type { Container, Scope } from "@/model/types";
+import type { Container, Scope, Status } from "@/model/types";
 import {
   validateContainerMove,
   validateContainerName,
@@ -68,6 +70,47 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
     return touched.map((node) => node.id);
   }
 
+  /**
+   * Gives a newly created list its default status set (Requirement 3.3).
+   *
+   * Written in the same `apply` as the container rather than as a follow-up
+   * mutation, so the list and its statuses land — or roll back — as one unit.
+   * A second call would be a second chance to fail, and a list that exists
+   * with no statuses is a dead end: the board renders no columns and
+   * `taskSlice.create` refuses with `CONFLICT`, so there is no way to put
+   * anything in it.
+   *
+   * Gated on the registry's `holdsTasks` rather than `type === "list"`, so
+   * moving tasks to a different level later stays a configuration change
+   * (Requirement 21.4).
+   */
+  function seedDefaultStatuses(
+    draft: MutableFlowboardState,
+    list: Container,
+  ): void {
+    if (!holdsTasks(list.type)) return;
+
+    DEFAULT_STATUS_TEMPLATE.forEach((template, index) => {
+      const status: Status = {
+        id: `st-${nanoid(8)}`,
+        workspaceId: list.workspaceId,
+        listId: list.id,
+        name: template.name,
+        category: template.category,
+        color: template.color,
+        /*
+         * Evenly spaced from scratch rather than resolved against neighbours:
+         * the set is being created, so there are none, and clean multiples of
+         * the gap are what the fixtures use and what keeps a later insert from
+         * needing a rebalance.
+         */
+        position: (index + 1) * POSITION_GAP,
+      };
+
+      draft.statuses[status.id] = status;
+    });
+  }
+
   return {
     create: (scope: Scope, input): Promise<Result<Container>> =>
       runMutation(pipeline, {
@@ -113,6 +156,7 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
           };
 
           draft.containers[created.id] = created;
+          seedDefaultStatuses(draft, created);
 
           return created;
         },

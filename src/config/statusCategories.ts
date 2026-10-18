@@ -18,6 +18,15 @@ export type StatusColorToken =
 export interface StatusCategoryConfig {
   readonly category: StatusCategory;
   readonly label: string;
+  /**
+   * The name given to this category's status in a list's default set.
+   *
+   * Deliberately separate from `label`. The label names the *category* in UI
+   * that groups by it ("Not started"); this names the *status* a list actually
+   * gets ("To do"). They read differently on purpose, and conflating them
+   * would put "Not started" on a kanban column header.
+   */
+  readonly defaultStatusName: string;
   readonly defaultToken: StatusColorToken;
   /** Display order of columns grouped by category. */
   readonly order: number;
@@ -32,6 +41,7 @@ export const STATUS_CATEGORY_CONFIG: Record<
   todo: {
     category: "todo",
     label: "Not started",
+    defaultStatusName: "To do",
     defaultToken: "status-todo",
     order: 0,
     isTerminal: false,
@@ -39,6 +49,7 @@ export const STATUS_CATEGORY_CONFIG: Record<
   active: {
     category: "active",
     label: "Active",
+    defaultStatusName: "In progress",
     defaultToken: "status-active",
     order: 1,
     isTerminal: false,
@@ -46,6 +57,7 @@ export const STATUS_CATEGORY_CONFIG: Record<
   done: {
     category: "done",
     label: "Completed",
+    defaultStatusName: "Done",
     defaultToken: "status-done",
     order: 2,
     isTerminal: true,
@@ -55,6 +67,34 @@ export const STATUS_CATEGORY_CONFIG: Record<
 export const STATUS_CATEGORIES = Object.values(STATUS_CATEGORY_CONFIG)
   .sort((a, b) => a.order - b.order)
   .map((config) => config.category);
+
+/** One entry of a list's default status set, before it is given ids. */
+export interface DefaultStatusTemplate {
+  readonly category: StatusCategory;
+  readonly name: string;
+  readonly color: StatusColorToken;
+}
+
+/**
+ * The status set every list starts with: one status per category, in category
+ * order — "To do", "In progress", "Done" (Requirement 3.3).
+ *
+ * Derived from the category table rather than written out, so adding a
+ * category gives new lists a column for it without a second edit, and the
+ * seed fixtures and `containerSlice.create` cannot drift apart about what
+ * "default" means (Requirement 21.6, 21.18).
+ *
+ * A list with no statuses is not a lesser list, it is a broken one: the board
+ * has no columns to render and `taskSlice.create` has nothing to file a task
+ * under, so there is no route back out. Seeding the set at creation is what
+ * keeps that state unreachable.
+ */
+export const DEFAULT_STATUS_TEMPLATE: readonly DefaultStatusTemplate[] =
+  STATUS_CATEGORIES.map((category) => ({
+    category,
+    name: STATUS_CATEGORY_CONFIG[category].defaultStatusName,
+    color: STATUS_CATEGORY_CONFIG[category].defaultToken,
+  }));
 
 /**
  * Complete Tailwind class strings per status token.

@@ -36,7 +36,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 1.3. WHEN a caller attempts to create or move a container under an invalid parent type, THEN the Controller SHALL reject the operation with error code `VALIDATION` and SHALL NOT mutate the Model.
 
-1.4. The system SHALL support create, read, rename/update and archive operations for `space`, `folder` and `list` container types.
+1.4. The system SHALL support create, read, rename/update and archive operations for `space`, `folder` and `list` container types. WHERE the created type holds tasks, creation SHALL also establish the container's default status set in the same mutation, per Requirement 3.3.1 — a created list is usable immediately or it is not created.
 
 1.5. The system SHALL implement deletion as **soft-delete (archive)** by setting `archivedAt` to an ISO timestamp. Archiving a container SHALL cascade to its descendant containers and to the tasks of any archived list.
 
@@ -117,9 +117,15 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 3.2. Each status SHALL have `id`, `listId`, `name`, `category`, `color`, `position`, where `category` is one of `todo`, `active`, `done`.
 
-3.3. Every list SHALL have at minimum a status in each of the `todo`, `active` and `done` categories, seeded as "To do", "In progress" and "Done".
+3.3. Every list SHALL have at minimum a status in each of the `todo`, `active` and `done` categories, named "To do", "In progress" and "Done". This SHALL hold for every list however it came to exist — seeded from fixtures or created at runtime — and not for the seeded lists alone.
 
-3.4. At least one seeded list SHALL define an additional status (for example "In review") so that per-list status sets are visibly distinct and demonstrable.
+3.3.1. WHEN a list is created, THEN the system SHALL give it that default status set as part of the same mutation that creates the list, so the two land or roll back together. A list SHALL NOT be reachable in a state with no statuses: the board renders one column per status and so renders none, and task creation refuses with `CONFLICT` because there is no status to file a task under — leaving a list that exists, appears in the sidebar, and cannot be used or repaired through any affordance the app offers. A follow-up mutation SHALL NOT be used for this, since a second call is a second opportunity to fail into exactly that state.
+
+3.3.2. The default set SHALL be declared once and derived from the status-category configuration rather than restated per call site, so the fixtures and runtime creation cannot disagree about what a default status is called, and so adding a category gives new lists a column for it without a second edit (Requirement 21.6, 21.18). The per-category default status name SHALL be distinct from the category's own display label — "To do" is a status, "Not started" is the category it belongs to, and conflating them would put the category label on a kanban column header.
+
+3.3.3. The condition "this container gets a status set" SHALL be resolved from the container registry's task-holding flag rather than from a `type === 'list'` comparison, so moving tasks to a different hierarchy level stays a configuration change (Requirement 21.4).
+
+3.4. At least one seeded list SHALL define an additional status (for example "In review") so that per-list status sets are visibly distinct and demonstrable. Such a status SHALL be expressed as an addition to the default set rather than as a separate hand-written set, so 3.3.2's single declaration still governs the three it shares.
 
 3.5. Selectors returning a task's status SHALL resolve it only from the status set of that task's list.
 
@@ -567,6 +573,8 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 18.4. Unit tests SHALL cover Controller mutation guards, asserting that a denied mutation returns `FORBIDDEN` and leaves the Model byte-for-byte unchanged.
 
 18.5. Unit tests SHALL cover task validation rules, status-set enforcement, cross-list move with status remapping, subtask depth limits and fractional position arithmetic including rebalancing.
+
+18.5.1. Unit tests SHALL cover the default status set of Requirement 3.3.1 from three directions: that a newly created list has the three statuses in category order and will accept a task, that a container which does not hold tasks gets none, and that a refused creation leaves neither the container nor any status behind. The third is what pins the "same mutation" guarantee — a follow-up write would pass the first assertion and fail that one.
 
 18.6. Unit tests SHALL cover optimistic rollback: a forced failure SHALL restore the pre-mutation state exactly.
 

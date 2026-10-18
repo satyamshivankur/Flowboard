@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { canView } from "@/model/permissions";
 import { SEED_IDS } from "@/model/seed";
-import { selectVisibleTree, type TreeNode } from "@/model/selectors";
+import {
+  selectBoardColumns,
+  selectStatusesForList,
+  selectVisibleTree,
+  type TreeNode,
+} from "@/model/selectors";
 import { scopeFor } from "@/test/fixtures";
 import { createTestStore, domainSnapshot } from "@/test/store";
 
@@ -39,6 +44,87 @@ describe("createContainer", () => {
       .find((node) => node.container.id === SEED_IDS.folders.q2);
 
     expect(q2?.children.at(-1)?.container.id).toBe(created?.id);
+  });
+
+  /*
+   * The bug this covers: `create` wrote only the container, so a new list had
+   * no statuses — the board fell through to "This list has no statuses" and
+   * `taskSlice.create` refused with CONFLICT, leaving no route out of it.
+   */
+  it("gives a new list the default status set, in category order", async () => {
+    const store = createTestStore();
+
+    const result = await store.getState().actions.container.create(alice, {
+      parentId: SEED_IDS.folders.q2,
+      type: "list",
+      name: "Sprint 15",
+    });
+
+    const listId = result.ok ? result.data.id : "";
+    const statuses = selectStatusesForList(store.getState(), alice, listId);
+
+    expect(statuses.map((status) => status.name)).toEqual([
+      "To do",
+      "In progress",
+      "Done",
+    ]);
+    expect(statuses.map((status) => status.category)).toEqual([
+      "todo",
+      "active",
+      "done",
+    ]);
+
+    for (const status of statuses) {
+      expect(status.listId).toBe(listId);
+      expect(status.workspaceId).toBe(SEED_IDS.workspace);
+    }
+
+    // The board has columns, and a task can actually be filed in one.
+    const columns = selectBoardColumns(store.getState(), alice, listId);
+
+    expect(columns).toHaveLength(3);
+    expect(columns.every((column) => column.tasks.length === 0)).toBe(true);
+
+    const task = await store.getState().actions.task.create(alice, {
+      listId,
+      statusId: statuses[0]?.id ?? "",
+      title: "First task",
+    });
+
+    expect(task.ok).toBe(true);
+  });
+
+  /* Gated on the registry's `holdsTasks`, so only a list gets a status set. */
+  it("creates no statuses for a container that does not hold tasks", async () => {
+    const store = createTestStore();
+    const before = Object.keys(store.getState().statuses).length;
+
+    await store.getState().actions.container.create(alice, {
+      parentId: SEED_IDS.spaces.engineering,
+      type: "folder",
+      name: "Q3 Launch",
+    });
+
+    expect(Object.keys(store.getState().statuses)).toHaveLength(before);
+  });
+
+  /*
+   * A rejected create must leave nothing behind — including the statuses,
+   * which is the reason they are written in the same `apply` as the container
+   * rather than as a follow-up mutation.
+   */
+  it("writes neither the list nor its statuses when creation is refused", async () => {
+    const store = createTestStore();
+    const before = domainSnapshot(store);
+
+    const result = await store.getState().actions.container.create(bob, {
+      parentId: SEED_IDS.folders.q2,
+      type: "list",
+      name: "Sprint 15",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(domainSnapshot(store)).toEqual(before);
   });
 
   it("accepts a private visibility at creation", async () => {

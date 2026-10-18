@@ -15,9 +15,10 @@ import {
   taskHoldingType,
   type ContainerTypeConfig,
 } from "./containers";
-import { MAX_TASK_DEPTH, POSITION_GAP } from "./limits";
+import { MAX_TASK_DEPTH, MIN_STATUSES_PER_LIST, POSITION_GAP } from "./limits";
 import { PRIORITIES, comparePriority } from "./priorities";
 import {
+  DEFAULT_STATUS_TEMPLATE,
   STATUS_CATEGORIES,
   TERMINAL_STATUS_CATEGORY,
 } from "./statusCategories";
@@ -149,6 +150,34 @@ describe("status categories", () => {
 
   it("resolves exactly one terminal category", () => {
     expect(TERMINAL_STATUS_CATEGORY).toBe("done");
+  });
+});
+
+describe("default status template", () => {
+  it("names the three statuses a new list starts with", () => {
+    expect(DEFAULT_STATUS_TEMPLATE.map((entry) => entry.name)).toEqual([
+      "To do",
+      "In progress",
+      "Done",
+    ]);
+  });
+
+  /*
+   * The template is derived from the category table, so this is what stops a
+   * new category being added without new lists getting a column for it — and
+   * what keeps the set at the minimum every list must retain.
+   */
+  it("covers every category exactly once, at the documented minimum", () => {
+    expect(DEFAULT_STATUS_TEMPLATE.map((entry) => entry.category)).toEqual(
+      STATUS_CATEGORIES,
+    );
+    expect(DEFAULT_STATUS_TEMPLATE).toHaveLength(MIN_STATUSES_PER_LIST);
+  });
+
+  it("carries a colour token per entry, never a hex literal", () => {
+    for (const entry of DEFAULT_STATUS_TEMPLATE) {
+      expect(entry.color).toMatch(/^status-/);
+    }
   });
 });
 
