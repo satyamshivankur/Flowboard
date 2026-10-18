@@ -1006,3 +1006,49 @@ A mode control put the same list of checkboxes into two states that looked ident
   - Two new cases: ticking and clearing Everyone fills and empties the list and swaps the summary copy; and a partially filled list reports `aria-checked="mixed"` and completes in one click
   - No Model or Controller test changed, which is the signal that this was a View change
   - _Requirements: 8.16.3.2, 18.7.1_
+
+---
+
+## Phase 16 — The tooltip avoids the viewport, not just the overflow
+
+`Tooltip` was portalled to `document.body` and positioned `fixed` back in Phase 4, which fixed the overflow clip it was written for. It left a second kind of clipping standing, and the two are easy to confuse: escaping an overflow ancestor gets the tooltip _painted_, and does nothing about it running off the screen.
+
+The portalled version centred on its trigger with a transform — `-translate-x-1/2 -translate-y-full` and friends. Cheap, no measurement, and for exactly that reason incapable of avoiding an edge: a tooltip that does not know its own size cannot know it is about to overflow. A tree row a rem from the left edge, a breadcrumb at the top of the window, an avatar on the rightmost board column all overhung.
+
+Reference taken from shadcn/ui's Tooltip, which is a thin wrapper over Radix's `Tooltip.Content` — so the behaviour being copied is Radix's, and the relevant props are `avoidCollisions`, `sticky: "partial"`, `collisionPadding` and the `data-side` attribute. Confirmed current via context7 against `/shadcn-ui/ui` and `/websites/radix-ui_primitives`.
+
+- [x] 35. Make the tooltip collision-aware
+- [x] 35.1 Extract the geometry into `src/lib/tooltipPlacement.ts`
+  - `resolveTooltipPlacement(anchor, size, preferred, { gap, padding, viewport })` — pure arithmetic over two rectangles, no React, no DOM reads, no `window`
+  - Pure because jsdom has no layout: every rect is zero, so a rendered tooltip can never be asserted to have landed anywhere. The same wall the board's drag arithmetic hit, answered the same way — isolate the maths, test it, and leave the component only the measuring
+  - `OPPOSITE` and `CROSS_AXIS` are `Record<TooltipSide, …>` rather than `switch` statements, so adding a side is a missing key and a compile error (21.15, 21.18)
+  - _Requirements: 13.4.1.1, 13.4.1.3_
+- [x] 35.2 Flip, then shift
+  - **Flip** (Radix `avoidCollisions`): the opposite side is used when the preferred one has no room and the opposite does. When neither fits the preference wins — flipping into a second overflow trades one clipped edge for another while moving the tooltip away from where the user is looking, and the cross-axis clamp still limits the damage
+  - **Shift** (Radix `sticky: "partial"`): cross axis only, clamped to a collision padding. A trigger in a corner needs the tooltip to slide _along_ the edge; sliding the main axis would put it somewhere other than beside the thing it describes, which is worse than an overhang
+  - `collisionPadding` is `0.5rem` where Radix defaults to `0`. Flush against the edge is legible and reads as a rendering accident
+  - Both offsets still convert from rem against the real root font size, so a user at 150% gets proportionally more of each (13.4.1, 22.1)
+  - _Requirements: 13.4.1.1_
+- [x] 35.3 Rework the component around a measurement
+  - The `TRANSFORM` record is gone; the tooltip is placed by `top`/`left` alone, which is what lets the maths see its own size. The inline-`style` exception is unchanged in kind and still one of the documented two (13.4)
+  - Unplaced, the bubble renders **`invisible`, not `hidden`** — `visibility: hidden` still generates a box, which is what makes it measurable, where `display: none` reports `0×0` and the measurement it is waiting on could never resolve
+  - Measured in a `useLayoutEffect`, so the unplaced frame never reaches a paint. No loop: `measure` keeps a stable identity across the render its own `setPlacement` causes, and one measurement stays valid because `max-w-64` makes the bubble's size independent of where it sits
+  - A zero-size read is treated as "not rendered" and leaves the placement alone. That covers the coarse-pointer case (`hidden can-hover:block`) and jsdom, and the inference is sound rather than lucky: the bubble carries padding, so a rendered one is never `0×0` even with empty content
+  - The bubble is a `useRef` while the trigger stays in state. The trigger's ref callback is passed through `cloneElement` during render, which the React Compiler rejects; the bubble is only read inside a layout effect, after commit, where a ref is correct and state would cost a render
+  - `data-side` reports the side actually used, matching the attribute Radix sets, so a direction-aware style reads where the tooltip is rather than where it was asked to go. `side` is now documented as a preference
+  - _Requirements: 13.4, 13.4.1.2, 13.4.1.4_
+- [x] 35.4 Test the arithmetic, and correct what the old test was really asserting
+  - `tooltipPlacement.test.ts`: 14 cases — the four flips, the shift at each of the four edges, the main axis never shifting, neither-side-fits, padding counting toward the fit decision, and the over-wide tie-break
+  - `Tooltip.test.tsx`'s side suite asserted the transform classes, which no longer exist. It now asserts `data-side`, plus that an unplaced bubble stays measurable — the one component-level invariant that a regression to `hidden` would break and nothing else would catch
+  - The portal and `aria-describedby` tests are untouched and still pass, which is the signal that the overflow fix was not disturbed by the viewport one
+  - _Requirements: 13.4.1.3, 18.1_
+- [x] 35.5 Decide against adopting Radix, and record why
+  - It would have been the smaller diff. Against it: Requirement 13.10 approves Headless UI and dnd-kit, and Headless UI already supplies every overlay here except the tooltip — a second headless kit for one component is a poor trade
+  - shadcn's version also needs a `TooltipProvider` at the root and a compound `Root`/`Trigger`/`Content` API, where this project's seven call sites are a single `<Tooltip content side>{child}</Tooltip>`; wrapping Radix back into that shape means owning a wrapper over a wrapper
+  - And the one behaviour this tooltip has that Radix does not — coarse-pointer suppression through the `can-hover` variant with no JavaScript check — would have had to be reimplemented on top of it
+  - What Radix offers beyond what was built: `align`/`alignOffset`, arrows, and `collisionBoundary` beyond the viewport. None has a call site here. If a second collision-aware popover appears, Floating UI directly beats either option
+  - _Requirements: 13.10_
+- [ ] 35.6 Verify the flip and the shift in a browser
+  - The arithmetic is unit-tested and the placement is not, for the same reason the drag is not: jsdom reports every rect as zero, so the component's measure step resolves to "not rendered" in every test and the collision path is never actually walked there
+  - Needs a visual check at the four edges — a sidebar tree row at the left, a breadcrumb at the top, the rightmost board column's avatars, and a card at the bottom of a column — plus one pass at a 150% root font size to confirm the converted gap and padding scale. Folds into 19.6
+  - _Requirements: 13.4.1.1, 20.11_

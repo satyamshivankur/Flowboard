@@ -118,9 +118,7 @@ describe("Tooltip show and hide", () => {
     await user.hover(trigger);
 
     expect(trigger).toHaveAttribute("aria-describedby");
-    expect(trigger).toHaveAccessibleDescription(
-      "Full name that was truncated",
-    );
+    expect(trigger).toHaveAccessibleDescription("Full name that was truncated");
 
     await user.unhover(trigger);
 
@@ -146,16 +144,22 @@ describe("Tooltip show and hide", () => {
   });
 });
 
+/*
+ * Side used to be a transform class — `-translate-y-full` and friends — which
+ * centred the tooltip without ever measuring it. That is precisely why it could
+ * not avoid a viewport edge, and it is gone: the tooltip is now placed by
+ * coordinates computed in `tooltipPlacement.ts`, which flips and shifts it.
+ *
+ * So there is no class left to assert, and jsdom cannot assert coordinates
+ * either — it has no layout, so every rect is zero. What is checkable here is
+ * that the requested side is reported; where it actually lands is unit-tested
+ * in `src/lib/tooltipPlacement.test.ts`.
+ */
 describe("Tooltip side", () => {
-  it("applies the transform for each side", async () => {
+  it("reports the side it is using", async () => {
     const user = userEvent.setup();
 
-    for (const [side, expected] of [
-      ["top", "-translate-y-full"],
-      ["bottom", "-translate-x-1/2"],
-      ["left", "-translate-x-full"],
-      ["right", "-translate-y-1/2"],
-    ] as const) {
+    for (const side of ["top", "bottom", "left", "right"] as const) {
       const { unmount } = render(
         <Tooltip content="Positioned" side={side}>
           <button type="button">{side}</button>
@@ -164,9 +168,37 @@ describe("Tooltip side", () => {
 
       await user.hover(screen.getByRole("button", { name: side }));
 
-      expect(screen.getByRole("tooltip")).toHaveClass(expected);
+      expect(screen.getByRole("tooltip")).toHaveAttribute("data-side", side);
 
       unmount();
     }
+  });
+
+  it("defaults to the top", async () => {
+    const user = userEvent.setup();
+
+    render(<ClippedTooltip />);
+
+    await user.hover(screen.getByRole("button", { name: "Trigger" }));
+
+    expect(screen.getByRole("tooltip")).toHaveAttribute("data-side", "top");
+  });
+
+  /*
+   * The frame before a placement exists must still generate a box, or the
+   * measurement it is waiting for can never resolve. `invisible` does;
+   * `hidden` would report 0×0 and deadlock.
+   */
+  it("stays measurable while unplaced", async () => {
+    const user = userEvent.setup();
+
+    render(<ClippedTooltip />);
+
+    await user.hover(screen.getByRole("button", { name: "Trigger" }));
+
+    const tooltip = screen.getByRole("tooltip");
+
+    expect(tooltip).toHaveClass("invisible");
+    expect(tooltip).not.toHaveClass("sr-only");
   });
 });

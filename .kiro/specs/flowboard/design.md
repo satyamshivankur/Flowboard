@@ -213,7 +213,7 @@ src/
 │
 ├── components/ui/                # Design system — pure primitives + stories
 ├── lib/                          # cn(), date utils, useLatched,
-│                                  # useDebouncedValue
+│                                  # useDebouncedValue, tooltipPlacement
 ├── test/                         # setup, fixture builders, render helpers
 ├── index.css                     # ONLY stylesheet: @import + @theme
 └── main.tsx
@@ -1248,7 +1248,7 @@ const BUTTON_VARIANT: Record<ButtonVariant, string> = {
 | `Dialog`           | `open`, `onClose`, `title`, `description?`, `size: 'sm'\|'md'\|'lg'`, `footer?`, `children`                                                                                                                                 |
 | `ConfirmDialog`    | `open`, `title`, `body?`, `confirmLabel?`, `cancelLabel?`, `tone: 'danger'\|'default'`, `loading?`, `onConfirm`, `onCancel`                                                                                                 |
 | `Drawer`           | `open`, `onClose`, `side: 'right'`, `width?`, `header?`, `footer?`, `children`, `initialFocusRef?`                                                                                                                          |
-| `Tooltip`          | `content`, `side`, `delay?`, `children`                                                                                                                                                                                     |
+| `Tooltip`          | `content`, `side`, `children` — `side` is a **preference**; the tooltip flips and shifts to stay in the viewport and reports where it landed as `data-side` (13.4.1.1)                                                      |
 | `Badge`            | `tone: 'neutral'\|'brand'\|'success'\|'warning'\|'danger'\|'info'`, `variant: 'solid'\|'soft'\|'outline'`, `size`, `icon?`, `children`                                                                                      |
 | `StatusPill`       | `status: { name, category, color }`, `variant: 'pill'\|'dot'\|'dot-label'`, `size`                                                                                                                                          |
 | `PriorityBadge`    | `priority: Priority`, `variant: 'flag'\|'pill'\|'dot'`, `size`, `showLabel?`                                                                                                                                                |
@@ -1586,7 +1586,29 @@ The sidebar tree takes the opposite side of the same trade. A drop there is not 
 
 - **Inline `style`** (13.4, 19.9) — two now, down from four. dnd-kit's `transform` was retired when `@dnd-kit/dom` took over writing it to the element directly, and the sidebar resizer's live width was retired with the resize handle itself. What remains is the bottom sheet's drag-to-dismiss offset and positioned overlay coordinates — both genuinely per-pointer-event, neither attached to a static layout element.
 
-  The last one is worth explaining, because it was discovered the hard way. `Tooltip` originally positioned itself `absolute` inside a `relative` wrapper. An absolutely positioned element is clipped by any ancestor with `overflow` set, and **`z-index` cannot escape an overflow clip** — so the tooltip was cut off almost everywhere: tree rows sit inside the sidebar's scroll container, card avatars inside a board column's, and everything inside the shell's `overflow-hidden`. It looked correct only in Storybook, which has no clipping ancestor. The fix is a portal to `document.body` with `position: fixed`, which means the coordinates have to be inline. Any future popover not already handled by Headless UI's anchoring needs the same treatment (13.4.1).
+  The last one is worth explaining, because it was discovered the hard way — twice, and the second discovery is the more interesting one.
+
+  **First: the overflow clip.** `Tooltip` originally positioned itself `absolute` inside a `relative` wrapper. An absolutely positioned element is clipped by any ancestor with `overflow` set, and **`z-index` cannot escape an overflow clip** — so the tooltip was cut off almost everywhere: tree rows sit inside the sidebar's scroll container, card avatars inside a board column's, and everything inside the shell's `overflow-hidden`. It looked correct only in Storybook, which has no clipping ancestor. The fix is a portal to `document.body` with `position: fixed`, which means the coordinates have to be inline. Any future popover not already handled by Headless UI's anchoring needs the same treatment (13.4.1).
+
+  **Second: the viewport edge.** The portal fixed the clipping and left a second kind of clipping standing, which is easy to mistake for the first. Escaping an overflow ancestor gets the tooltip _painted_; it does nothing about running off the screen. The portalled version centred itself on its trigger with a transform — `-translate-x-1/2 -translate-y-full` and friends — which is cheap, needs no measurement, and for exactly that reason cannot avoid an edge: **a tooltip that does not know its own size cannot know it is about to overflow.** A tree row a rem from the left edge, a breadcrumb at the top of the window, an avatar on the rightmost board column all overhung.
+
+  The fix follows Radix UI's tooltip, the primitive shadcn/ui wraps, rather than adopting it. Two corrections, in `src/lib/tooltipPlacement.ts`:
+
+  | Radix               | Behaviour here                                                                               |
+  | ------------------- | -------------------------------------------------------------------------------------------- |
+  | `avoidCollisions`   | Flip to the opposite side when the preferred one has no room and the opposite does           |
+  | `sticky: "partial"` | Shift along the **cross** axis to stay inside a collision padding, never along the main axis |
+  | `collisionPadding`  | `0.5rem`, converted against the real root font size — Radix defaults this to `0`             |
+  | `data-side`         | The side actually used, after any flip                                                       |
+
+  Three things in that are load-bearing rather than incidental:
+  - **The main axis is never shifted.** Sliding it would put the tooltip somewhere other than beside the thing it describes, which is worse than an overhang. Radix draws the same line.
+  - **The preference wins when neither side fits.** Flipping into a second overflow trades one clipped edge for another _and_ moves the tooltip away from where the user is looking. The cross-axis clamp still limits the damage.
+  - **The geometry is a pure module, not part of the component.** jsdom has no layout, so a rendered tooltip can never be asserted to have landed anywhere — the same wall the drag arithmetic hit. Taking two rectangles and a viewport as arguments makes the flip and the shift unit-testable, and reduces the component to measuring and writing the numbers it is handed. `tooltipPlacement.test.ts` covers all four flips, both shift axes, the neither-fits case, and the tie-break that makes an over-wide tooltip overflow right rather than left.
+
+  The cost is one read-then-write pass the transform version avoided: the tooltip renders `invisible` — not `hidden`, which would report `0×0` and deadlock the measurement it is waiting on — is measured in a layout effect, and is placed before the browser paints. One measurement is enough because `max-w-64` makes the bubble's size independent of where it sits.
+
+  **Radix was considered and not adopted.** It would have been the smaller diff, and the reasons against it are specific rather than reflexive: Requirement 13.10 approves Headless UI and dnd-kit, and Headless UI already supplies every overlay in this app except the tooltip — a second headless kit for one component is a poor trade. shadcn's version also needs a `TooltipProvider` at the root and uses a compound `Root`/`Trigger`/`Content` API, where this project's call sites are a single `<Tooltip content side>{child}</Tooltip>` across seven files; wrapping Radix back into that shape means owning a wrapper over a wrapper. And the one behaviour this tooltip has that Radix does not — suppression on coarse pointers through the `can-hover` variant, with no JavaScript check — would have had to be reimplemented on top of it. What Radix actually offers over this is `align`, arrows and `collisionBoundary`, none of which has a call site here. If a second collision-aware popover ever appears, that calculus changes and Floating UI directly is the better answer than either.
 
 - **`px` units** (22.4) — the pointer activation distance and the touch press tolerance, unchanged by the migration. These are pointer-movement thresholds in device pixels, not rendered dimensions; expressing a drag threshold in `rem` would make it change with font size, which is meaningless.
 
@@ -1649,6 +1671,7 @@ Vitest + jsdom + Testing Library, single-run via `npm run test`. `src/test/setup
 - `validation.test.ts` — title bounds, parent-type matrix, cyclic move rejection, subtask depth, status-set enforcement.
 - `config.test.ts` — the registries, including that `DEFAULT_STATUS_TEMPLATE` names "To do"/"In progress"/"Done", covers every category exactly once in category order, and matches `MIN_STATUSES_PER_LIST`. Asserted against the derived template rather than against three literals, so a new category fails the build until the minimum is reconsidered.
 - `position.test.ts` — insert at head/middle/tail, and rebalance when the gap collapses.
+- `tooltipPlacement.test.ts` — the overlay collision geometry: all four flips, the cross-axis shift at each edge, that the main axis is never shifted, that the preference is kept when neither side fits, that the collision padding counts toward the fit decision, and the tie-break that makes an over-wide tooltip overflow right rather than left. Pure arithmetic for the same reason the drag arithmetic is: jsdom has no layout, so a rendered overlay cannot be asserted to have landed anywhere.
 - `access.test.ts` — the `ContainerAccess` ⇄ `Grant[]` translation, asserted as a **round-trip property** over every mode and selection rather than as two mappings. Two mappings asserted separately both pass while disagreeing with each other, which for a permissions mapping is the one failure mode that matters. Alongside it: a bypassing role never appears in a list or a written row; `governedMemberIds` follows an injected capability table rather than the name `admin`; a grant on another resource or another subject type survives a save; and `defaultAccessFor` is restricted for every grantable type and open for the one that is not.
 
 **Extensibility tests** — these are what make the forward-compatibility claims verifiable rather than aspirational (18.9–18.11):

@@ -466,6 +466,21 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 13.4.1. Any overlay that can appear inside a scrolling or clipping region — tooltips, and any popover not already handled by Headless UI's anchoring — SHALL be rendered in a portal and positioned against the viewport. Rem-derived offsets SHALL be converted against the real root font size rather than an assumed 16px, so overlay spacing scales with the rest of the layout.
 
+13.4.1.1. Such an overlay SHALL also avoid the **viewport edges**, which the portal alone does not address. Escaping an overflow clip gets the overlay painted; it does not stop it running off the screen, and a trigger near an edge is the common case rather than the exotic one — a tree row a rem from the left edge, a breadcrumb at the top of the window, an avatar on the rightmost board column. Two corrections SHALL be applied, in this order:
+
+| Correction                        | Rule                                                                                                                                                  |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Flip (Radix `avoidCollisions`)    | WHEN the preferred side has no room and the opposite side does, THEN the opposite side SHALL be used. WHEN neither fits, the preference SHALL be kept |
+| Shift (Radix `sticky: "partial"`) | The overlay SHALL be shifted along the **cross** axis to stay within a collision padding of every edge, and SHALL NOT be shifted along the main axis  |
+
+The main axis SHALL NOT be shifted because doing so detaches the overlay from the element it describes, which is a worse outcome than an overhang. The preference SHALL win when neither side fits, because flipping into a second overflow trades one clipped edge for another while moving the overlay away from where the user is looking.
+
+13.4.1.2. The `side` prop of such an overlay SHALL be documented and implemented as a **preference** rather than an instruction, since 13.4.1.1 may override it. The side actually used SHALL be exposed on the rendered element — as `data-side`, matching the attribute Radix sets — so that a direction-aware style reads where the overlay is rather than where it was asked to go.
+
+13.4.1.3. The collision geometry SHALL be a pure function of the trigger rectangle, the overlay's own size and the viewport, held in a module with no React and no DOM reads. jsdom has no layout, so a rendered overlay can never be asserted to have landed anywhere; isolating the arithmetic is what makes the flip and the shift testable rather than only reviewable. The component's remaining responsibility SHALL be measuring and writing the numbers it is handed.
+
+13.4.1.4. An overlay that must measure itself before it can be placed SHALL remain measurable while unplaced — `visibility: hidden` rather than `display: none`, since the latter reports a zero-sized box and the measurement could never resolve. It SHALL NOT be painted in that state, and the measurement SHALL happen before the browser paints, so the unplaced frame is never visible.
+
 13.5. The Tailwind `@theme` block SHALL define a token set covering `colors` (neutral ramp, brand/accent, semantic success/warning/danger/info, five priority tokens, four status tokens), `fontFamily`, `borderRadius`, `boxShadow` and `spacing` extensions.
 
 13.6. Priority and status colors SHALL be referenced exclusively through tokens, guaranteeing identical appearance in kanban cards, list rows and the drawer.

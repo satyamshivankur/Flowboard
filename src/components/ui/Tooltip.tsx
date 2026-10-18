@@ -4,6 +4,7 @@ import {
   useCallback,
   useId,
   useLayoutEffect,
+  useRef,
   useState,
   type ReactElement,
   type ReactNode,
@@ -11,11 +12,21 @@ import {
 import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/cn";
+import {
+  resolveTooltipPlacement,
+  type TooltipPlacement,
+  type TooltipSide,
+} from "@/lib/tooltipPlacement";
 
-export type TooltipSide = "top" | "bottom" | "left" | "right";
+export type { TooltipSide };
 
 export interface TooltipProps {
   readonly content: ReactNode;
+  /**
+   * Preferred side. A **preference**, not an instruction: the tooltip flips to
+   * the opposite side when this one has no room, so a card at the top of a
+   * column still gets a readable tooltip.
+   */
   readonly side?: TooltipSide | undefined;
   /*
    * The `| undefined` is required by `exactOptionalPropertyTypes`: cloning with
@@ -30,56 +41,29 @@ export interface TooltipProps {
   readonly className?: string | undefined;
 }
 
-/** Gap between trigger and tooltip, in rem. */
+/** Gap between trigger and tooltip, in rem — Radix's `sideOffset`. */
 const GAP_REM = 0.375;
 
 /**
- * Transform classes per side.
- *
- * Centring is done with a transform rather than by measuring the tooltip, so
- * one layout pass is enough — no read-then-write cycle against its own size.
+ * Margin held from every viewport edge, in rem — Radix's `collisionPadding`,
+ * which defaults to `0` there. A tooltip flush against the edge is legible but
+ * looks like a rendering accident, and the inset costs nothing.
  */
-const TRANSFORM: Record<TooltipSide, string> = {
-  top: "-translate-x-1/2 -translate-y-full",
-  bottom: "-translate-x-1/2",
-  left: "-translate-x-full -translate-y-1/2",
-  right: "-translate-y-1/2",
-};
+const COLLISION_PADDING_REM = 0.5;
 
-interface Position {
-  readonly top: number;
-  readonly left: number;
-}
-
-/** Converts the rem gap against the real root font size, not an assumed 16. */
-function gapPx(): number {
+/**
+ * Converts rem against the real root font size rather than an assumed 16.
+ *
+ * Both the gap and the collision padding go through this, so a user at a 150%
+ * root font size gets proportionally more of each — the same rule the rest of
+ * the layout follows (Requirement 13.4.1, 22.1).
+ */
+function remToPx(rem: number): number {
   const parsed = Number.parseFloat(
     getComputedStyle(document.documentElement).fontSize,
   );
 
-  return GAP_REM * (Number.isFinite(parsed) && parsed > 0 ? parsed : 16);
-}
-
-function positionFor(rect: DOMRect, side: TooltipSide): Position {
-  const gap = gapPx();
-  const centreX = rect.left + rect.width / 2;
-  const centreY = rect.top + rect.height / 2;
-
-  switch (side) {
-    case "top":
-      return { left: centreX, top: rect.top - gap };
-    case "bottom":
-      return { left: centreX, top: rect.bottom + gap };
-    case "left":
-      return { left: rect.left - gap, top: centreY };
-    case "right":
-      return { left: rect.right + gap, top: centreY };
-    default: {
-      // Extending TooltipSide becomes a compile error here (Req 21.15).
-      const exhaustive: never = side;
-      return exhaustive;
-    }
-  }
+  return rem * (Number.isFinite(parsed) && parsed > 0 ? parsed : 16);
 }
 
 /**
@@ -87,17 +71,22 @@ function positionFor(rect: DOMRect, side: TooltipSide): Position {
  *
  * **Rendered in a portal, positioned `fixed`.** An absolutely positioned
  * tooltip is clipped by any ancestor with `overflow` set, and `z-index` cannot
- * escape an overflow clip — so the previous version was cut off almost
- * everywhere in the app: tree rows sit inside the sidebar's scroll container,
- * card avatars inside a board column's, and everything inside the shell's
- * `overflow-hidden`. It only looked correct in Storybook, which has no
- * clipping ancestor.
+ * escape an overflow clip — so an earlier version was cut off almost everywhere
+ * in the app: tree rows sit inside the sidebar's scroll container, card avatars
+ * inside a board column's, and everything inside the shell's `overflow-hidden`.
+ * It only looked correct in Storybook, which has no clipping ancestor.
+ *
+ * **It also avoids the viewport edges**, which the portal alone does not fix.
+ * Escaping an overflow clip gets the tooltip painted; it does not stop it
+ * running off the screen. A tree row one rem from the left edge, a breadcrumb
+ * at the top of the window, an avatar on the rightmost board column — each
+ * centred its tooltip on the trigger and let it overhang. `tooltipPlacement.ts`
+ * flips and shifts it, following Radix's `avoidCollisions` and
+ * `sticky: "partial"` (the primitive shadcn/ui wraps).
  *
  * The coordinates are one of the two documented inline-`style` exceptions, the
  * other being the bottom sheet's drag offset (Requirement 13.4). A viewport
- * position computed from `getBoundingClientRect` cannot be expressed as a
- * utility class; the rem gap is still converted against the real root font size
- * so the spacing scales like everything else.
+ * position computed from `getBoundingClientRect` cannot be a utility class.
  *
  * Deliberately **not** shown on coarse pointers. A tooltip there either never
  * fires, or fires on tap and swallows the tap meant for the control — which is
@@ -120,32 +109,75 @@ export function Tooltip({
    * ref holding an element that was never committed. State has no such problem.
    */
   const [trigger, setTrigger] = useState<HTMLSpanElement | null>(null);
-  const [position, setPosition] = useState<Position | null>(null);
+  /*
+   * The bubble, by contrast, is only ever read inside a layout effect — after
+   * commit — so a plain ref is right and state would cause an extra render.
+   */
+  const bubble = useRef<HTMLSpanElement | null>(null);
+
+  const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<TooltipPlacement | null>(null);
 
   const measure = useCallback(() => {
-    if (!trigger) return;
+    const element = bubble.current;
 
-    setPosition(positionFor(trigger.getBoundingClientRect(), side));
+    if (!trigger || !element) return;
+
+    const size = element.getBoundingClientRect();
+
+    /*
+     * A zero-size box means `display: none`, which is the coarse-pointer case
+     * (`hidden can-hover:block`) and also every jsdom test, since jsdom has no
+     * layout. The inference is safe rather than lucky: the bubble carries
+     * padding, so a rendered one is never 0×0 even with empty content.
+     *
+     * Returning leaves `placement` null, which keeps the bubble `invisible`.
+     * Running the collision maths against a zero box would instead produce
+     * coordinates that are confidently wrong.
+     */
+    if (size.width === 0 && size.height === 0) return;
+
+    setPlacement(
+      resolveTooltipPlacement(trigger.getBoundingClientRect(), size, side, {
+        gap: remToPx(GAP_REM),
+        padding: remToPx(COLLISION_PADDING_REM),
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+      }),
+    );
   }, [trigger, side]);
 
   const show = useCallback(() => {
-    measure();
-  }, [measure]);
+    setOpen(true);
+  }, []);
 
   const hide = useCallback(() => {
-    setPosition(null);
+    setOpen(false);
+    setPlacement(null);
   }, []);
 
   /*
-   * A `fixed` tooltip does not move with its trigger, so scrolling would leave
-   * it stranded. Re-measuring on scroll keeps them together; the listener is
-   * only attached while one is visible, and at most one ever is.
+   * Measure after the bubble mounts and before the browser paints, so the
+   * unplaced frame is never seen.
    *
-   * `capture: true` matters — scroll does not bubble, so a listener on window
-   * would never see a nested scroll container without it.
+   * This is a read-then-write cycle the previous version avoided by centring
+   * with a CSS transform and never measuring itself — cheaper, and exactly why
+   * it could not avoid the viewport edge: a tooltip that does not know its own
+   * size cannot know it is about to overflow. One extra layout pass buys the
+   * flip and the shift. It does not loop, because `measure` keeps a stable
+   * identity across the render its own `setPlacement` causes, and because the
+   * bubble's size does not depend on where it sits — `max-w-64` is the same
+   * at every position, so one measurement stays valid.
+   *
+   * The same handler is attached to scroll and resize. A `fixed` tooltip does
+   * not travel with its trigger, so without this a scroll would strand it, and
+   * a window resize would leave a flip decision made against the old viewport.
+   * `capture: true` matters: scroll does not bubble, so a window listener would
+   * never see a nested scroll container without it.
    */
   useLayoutEffect(() => {
-    if (position === null) return;
+    if (!open) return;
+
+    measure();
 
     window.addEventListener("scroll", measure, {
       capture: true,
@@ -157,11 +189,9 @@ export function Tooltip({
       window.removeEventListener("scroll", measure, { capture: true });
       window.removeEventListener("resize", measure);
     };
-  }, [position, measure]);
+  }, [open, measure]);
 
   if (!isValidElement(children)) return children;
-
-  const visible = position !== null;
 
   return (
     <>
@@ -169,9 +199,7 @@ export function Tooltip({
         `inline-flex`, not `display: contents`. A `contents` element generates no
         box, so `getBoundingClientRect()` on it returns all zeros and the
         tooltip would anchor to the top-left of the viewport. This wrapper is
-        the element being measured, so it has to be a real box — the previous
-        version had an equivalent inner `inline-flex`, so the layout is
-        unchanged.
+        the element being measured, so it has to be a real box.
       */}
       <span
         ref={setTrigger}
@@ -180,22 +208,31 @@ export function Tooltip({
         onPointerLeave={hide}
       >
         {cloneElement(children, {
-          "aria-describedby": visible ? id : undefined,
+          "aria-describedby": open ? id : undefined,
           onFocus: show,
           onBlur: hide,
         })}
       </span>
 
-      {visible &&
+      {open &&
         createPortal(
           <span
             id={id}
+            ref={bubble}
             role="tooltip"
             /*
-             * Viewport coordinates — the documented exception above. React
-             * appends the unit, so there is no px literal in the source.
+             * The side actually used, after any flip — the attribute Radix sets
+             * for the same reason, so a direction-aware style reads where the
+             * tooltip is rather than where it was asked to go.
              */
-            style={{ top: position.top, left: position.left }}
+            data-side={placement?.side ?? side}
+            /*
+             * Viewport coordinates — the documented exception above. React
+             * appends the unit, so there is no px literal in the source. The
+             * pre-measure fallback is the origin; it is never painted, because
+             * the bubble is `invisible` until a placement exists.
+             */
+            style={{ top: placement?.top ?? 0, left: placement?.left ?? 0 }}
             className={cn(
               // `max-w` with wrapping rather than `whitespace-nowrap`: a long
               // truncated name is exactly what a tooltip is for, and nowrap
@@ -205,7 +242,13 @@ export function Tooltip({
               // `hidden` by default and shown only where a real pointer exists,
               // so touch never gets a tooltip even though focus fires on tap.
               "can-hover:block",
-              TRANSFORM[side],
+              /*
+               * `invisible`, not `hidden`, for the frame before the placement
+               * is known. `visibility: hidden` still generates a box, which is
+               * what makes it measurable; `display: none` would report 0×0 and
+               * the measurement would never resolve.
+               */
+              placement === null && "invisible",
               className,
             )}
           >
