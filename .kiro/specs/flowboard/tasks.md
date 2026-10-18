@@ -939,11 +939,11 @@ This phase makes it a decision taken at creation and revisable afterwards. The p
 
 - [x] 32. Build the control
 - [x] 32.1 `AccessFields` — one control, used in both dialogs
-  - A mode above a member list, and the list always means "has access". Under "Selected people" a tick writes an `allow`; under "Everyone" the list starts full and unticking writes a `deny`
-  - The alternative — three-state allow/inherit/deny per member — exposes the storage model rather than the question, and an admin would have to know the ancestor walk to predict what "inherit" does
-  - Switching to "Everyone" ticks every governed member; switching back preserves the selection. The asymmetry is deliberate: under "Everyone" an unticked member is an explicit deny, so carrying a sparse selection into that mode would convert "not granted yet" into "actively blocked" without anyone asking
-  - A bypassing role's row is ticked, disabled and captioned "always has access". Hidden, it would read as "the admin has no access", which is the opposite of true
-  - A summary line states the consequence in words, including the notable case: "Only admins will be able to see this list"
+  - A member list where every row means "has access", with "Everyone in the workspace" as the select-all above it. Ticking fills the list, clearing empties it, and a partial selection reports `mixed`
+  - `visibility` is derived, not chosen: everyone selected → `public`, anything less → `private` plus an `allow` per tick. That is the honest mapping, because `public` is also what admits members added later — which is what "Everyone" claims and a list of three names does not
+  - **Built as a two-option segmented control first, and replaced in 34.1.** Recorded here because the reason is the useful part — a mode control gave the same list two states that looked identical and saved differently
+  - A bypassing role's row is ticked, disabled and captioned "always has access". Hidden, it would read as "the admin has no access", which is the opposite of true. Bypassing roles are also excluded from the select-all arithmetic, or "Everyone" would be unreachable
+  - A summary line states the consequence in words, including the two notable cases: "Only admins will be able to see this list", and the "including anyone added later" clause the checkboxes cannot show
   - _Requirements: 8.16.3, 8.16.4, 8.16.5, 8.16.6, 20.9_
 - [x] 32.2 Put it in the create form
   - `ContainerFormDialog`'s create mode now carries name + access, seeded from `defaultAccessFor` so the form opens restricted and the admin widens it deliberately. Shown only where the registry says the type is grantable
@@ -980,3 +980,29 @@ This phase makes it a decision taken at creation and revisable afterwards. The p
 - [ ] 33.5 Carry access into the README's permission section
   - 24.4 documents the resolution algorithm, the admin bypass and the view/edit split. It now also needs the access translation, the closed-by-default creation rule and the `container:share` capability — and the extension note should say that teams are additive because a save preserves non-user rows
   - _Requirements: 19.4, 19.12_
+
+---
+
+## Phase 15 — "Everyone" is a checkbox, not a mode
+
+Phase 14 shipped `AccessFields` with a two-option segmented control — Everyone / Selected people — above the member list. It worked, and it was the wrong shape.
+
+A mode control put the same list of checkboxes into two states that looked identical and behaved differently: a ticked row meant an explicit `allow` under one and nothing at all under the other. So the rows on screen did not determine what would be saved, and the control needed an asymmetric rule to stay safe — switching to Everyone had to tick every member, because an unticked member in that mode is an _explicit deny_, and carrying a sparse selection across the switch would have turned "not granted yet" into "actively blocked". That rule was correct and invisible, which is the worst combination for a permissions control.
+
+- [x] 34. Replace the mode with a select-all
+- [x] 34.1 Make "Everyone in the workspace" a checkbox over the member list
+  - Checking it selects every governed member; clearing it deselects every one. A partial selection reports `mixed` via `Checkbox`'s `indeterminate`, so the next click reads as "include everyone" rather than as a toggle from a state it does not describe
+  - `SegmentedControl` is gone from this file, along with the `Globe`/`Lock` icons and the `ariaLabel`. The primitive itself stays — `ViewSwitcher` and the control stories still use it
+  - Bypassing roles stay out of the arithmetic. Counting them would make "Everyone" unreachable, since the access list cannot grant what a bypass already gives
+  - One control, so it lands on creation and on editing together — `ContainerFormDialog` renders the same component in both and needed no change
+  - _Requirements: 8.16.3, 8.16.3.1, 8.16.3.2_
+- [x] 34.2 Derive `visibility` from the selection
+  - Everyone selected → `public` with no exception rows; anything less → `private` with an `allow` per tick; nothing selected → `private` with no rows, which is admins only
+  - **Deliberately not normalised on open.** A container stored as `public` with a deny row — the seed's Infra list — renders correctly and, left untouched, saves back exactly what it read. Only a real interaction re-derives. Without that, opening the dialog and pressing Save would rewrite `public` + deny into `private` + allows: the same access for every current member, a different answer for the next person hired, and caused by an admin who changed nothing
+  - The Controller still expresses `public` + `deny` in full, and `containerSlice.test.ts` still covers it. This narrows the control surface, not the model
+  - _Requirements: 8.16.4, 8.16.4.1, 8.16.4.2_
+- [x] 34.3 Update the tests
+  - The two assertions that queried `role="radiogroup"` now query the select-all checkbox, and the restricted-by-default case additionally asserts that every member row starts clear — which the mode control's checked radio was standing in for
+  - Two new cases: ticking and clearing Everyone fills and empties the list and swaps the summary copy; and a partially filled list reports `aria-checked="mixed"` and completes in one click
+  - No Model or Controller test changed, which is the signal that this was a View change
+  - _Requirements: 8.16.3.2, 18.7.1_

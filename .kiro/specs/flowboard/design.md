@@ -559,11 +559,27 @@ const access = input.access ?? defaultAccessFor(input.type);
 - **Same mutation as the container and its statuses.** A follow-up write is a second chance to fail, and with failure injection armed it is a realistic one; failing it leaves a container whose access nobody chose, which is the state this change exists to remove. `containerSlice.test.ts` asserts a refused create against `domainSnapshot` — a follow-up write would satisfy every other assertion in that file and fail only that one.
 - **The fallback is not the UI's path.** The create form always sends an explicit value. The fallback exists so that a programmatic caller which forgets cannot publish a container to the whole workspace by omission.
 
-#### One list of members, two meanings
+#### One list, one meaning
 
-`AccessFields` renders a mode above a member list, and the list always means "has access". Under **Selected people** a tick writes an `allow`; under **Everyone** the list starts full and unticking writes a `deny`. The alternative — a three-state allow/inherit/deny control per member — exposes the storage model rather than the question being asked, and an admin would have to know the walk to predict what "inherit" does.
+`AccessFields` is a member list where every row means "has access", with **Everyone in the workspace** as the select-all at the top of it. Ticking it fills the list; clearing it empties the list; a partial selection reports `mixed`, so the next click reads as "include everyone" rather than as a toggle from a state it does not describe.
 
-One asymmetry is deliberate: switching to **Everyone** ticks every governed member, while switching back preserves the selection. Under Everyone an unticked member is an _explicit deny_, so carrying a sparse selection into that mode would convert "not granted yet" into "actively blocked" without anyone asking for it. Going the other way the ticks already mean what they will mean.
+The first version made Everyone a two-option segmented control above the list, and that was wrong in a specific way worth recording. A mode control put the same list into two states that looked identical and behaved differently: a ticked row meant an explicit `allow` under one and nothing at all under the other, so the rows on screen did not determine what would be saved. It also needed an asymmetric rule to stay safe — switching to Everyone had to tick every member, because an unticked member in that mode is an _explicit deny_, and carrying a sparse selection across the switch would have converted "not granted yet" into "actively blocked". A select-all checkbox has none of that: one list, one meaning, no hidden state, and the only rule it needs is the one everybody already knows a select-all to have.
+
+`visibility` is therefore derived rather than chosen:
+
+```ts
+const everyone = hasGoverned && memberIds.length === governed.length;
+
+onChange({ visibility: everyone ? "public" : "private", memberIds });
+```
+
+That mapping is the honest one rather than a convenience. `public` is also what admits members added to the workspace _later_ — which is exactly what "Everyone" claims and what a list of three names does not. It is the one consequence the checkboxes cannot show, so the summary line says it in words.
+
+The derivation deliberately does **not** normalise on open. A container stored as `public` with a deny row — the seed's Infra list — renders correctly and, left untouched, saves back exactly what it read. Only an actual interaction re-derives. Without that, opening the dialog and clicking Save would silently rewrite `public` + deny into `private` + allows: identical access for every current member, different for the next person hired, and caused by an admin who changed nothing.
+
+The Controller still expresses `public` + `deny` in full — `grantRowsForAccess` writes those rows, the seed uses them, and `containerSlice.test.ts` covers them. It is the UI that no longer produces that representation from scratch, which narrows the control surface rather than the model.
+
+The three-state alternative — allow / inherit / deny per member — was never built. It exposes the storage model rather than the question being asked, and an admin would have to know the ancestor walk to predict what "inherit" does on any given row.
 
 Edits are a local draft committed on save, not a write per checkbox. Per-toggle writes would make a half-made decision live — Bob sees the list before the admin has finished deciding — and would pay the simulated latency three times for one thought.
 

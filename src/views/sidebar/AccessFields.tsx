@@ -1,11 +1,7 @@
-import { Globe, Lock } from "lucide-react";
-
 import { Avatar } from "@/components/ui/Avatar";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import type { Visibility } from "@/config/containers";
+import { Separator } from "@/components/ui/Separator";
 import type { AccessMemberViewModel } from "@/controllers/hooks/useContainerAccess";
-import { cn } from "@/lib/cn";
 import type { ContainerAccess } from "@/model/access";
 
 export interface AccessFieldsProps {
@@ -25,18 +21,20 @@ export interface AccessFieldsProps {
  * list and revisiting it a week later should be looking at the same thing
  * (Requirement 8.15, 8.16).
  *
- * One checkbox list, two meanings, resolved by the mode above it. Under
- * "Selected people" a tick writes an explicit allow; under "Everyone" the list
- * starts fully ticked and unticking writes an explicit deny. Expressing both as
- * "has access" keeps the control honest — the alternative, a three-state
- * allow/inherit/deny picker per member, exposes the storage model rather than
- * the question being asked.
+ * **One list, one meaning.** Every row is "has access", and "Everyone" is the
+ * select-all at the top of that list rather than a mode above it. An earlier
+ * version made it a two-option segmented control, which put the member list
+ * into one of two states that looked identical and behaved differently: a
+ * ticked member meant an explicit `allow` under one and nothing at all under
+ * the other. A checkbox that ticks and clears the list has no such hidden
+ * state — what the rows show is what will be saved (Requirement 8.16.3).
+ *
+ * `visibility` is therefore derived rather than chosen: everyone ticked is
+ * `public`, anything less is `private` plus an explicit allow per tick. That
+ * mapping is the honest one, because `public` is also what admits members
+ * added to the workspace *later* — which is what "Everyone" says and a list of
+ * three names does not.
  */
-const MODE_OPTIONS = [
-  { value: "public" as const, label: "Everyone", icon: Globe },
-  { value: "private" as const, label: "Selected people", icon: Lock },
-];
-
 export function AccessFields({
   typeLabel,
   access,
@@ -45,55 +43,72 @@ export function AccessFields({
   onChange,
 }: AccessFieldsProps) {
   const noun = typeLabel.toLowerCase();
+
+  /*
+   * Bypassing roles are excluded from the arithmetic entirely. Their rows are
+   * rendered ticked and disabled, but counting them would make "Everyone"
+   * unreachable — the access list cannot grant what a bypass already gives.
+   */
   const governed = members.filter((member) => !member.bypasses);
   const selected = new Set(access.memberIds);
 
-  /*
-   * Switching to "Everyone" ticks every governed member; switching back keeps
-   * whatever is ticked.
+  const selectedCount = governed.filter((member) =>
+    selected.has(member.id),
+  ).length;
+
+  const hasGoverned = governed.length > 0;
+  const allSelected = hasGoverned && selectedCount === governed.length;
+  const someSelected = selectedCount > 0;
+
+  /**
+   * Emits a selection, deriving `visibility` from it.
    *
-   * The asymmetry is the point. Under "Everyone" an unticked member is an
-   * explicit deny, so carrying a sparse selection into that mode would turn
-   * "not granted yet" into "actively blocked" without the user asking for it.
-   * Going the other way, the ticks already mean what they will mean.
+   * Note what this does *not* do: normalise on mount. A dialog opened on a
+   * container stored as `public` with one deny row renders correctly and, left
+   * untouched, saves back exactly what it read. The derivation applies from the
+   * first interaction onward, so an admin who opens the dialog and closes it
+   * cannot rewrite a representation they never touched.
    */
-  function handleVisibility(visibility: Visibility) {
-    onChange({
-      visibility,
-      memberIds:
-        visibility === "public"
-          ? governed.map((member) => member.id)
-          : access.memberIds,
-    });
+  function emit(memberIds: readonly string[]) {
+    const everyone = hasGoverned && memberIds.length === governed.length;
+
+    onChange({ visibility: everyone ? "public" : "private", memberIds });
+  }
+
+  function handleToggleAll() {
+    emit(allSelected ? [] : governed.map((member) => member.id));
   }
 
   function handleToggle(userId: string) {
-    onChange({
-      visibility: access.visibility,
-      memberIds: selected.has(userId)
+    emit(
+      selected.has(userId)
         ? access.memberIds.filter((id) => id !== userId)
         : [...access.memberIds, userId],
-    });
+    );
   }
 
-  const withAccess = governed.filter((member) => selected.has(member.id));
-
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-2">
-        <span className="text-sm font-semibold text-ink-900">
-          Who can access this {noun}
-        </span>
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-semibold text-ink-900">
+        Who can access this {noun}
+      </span>
 
-        <SegmentedControl
-          options={MODE_OPTIONS}
-          value={access.visibility}
-          onChange={handleVisibility}
-          ariaLabel={`Access for this ${noun}`}
-          size="md"
-          className={cn(disabled && "pointer-events-none opacity-50")}
+      <div className="flex min-h-touch items-center rounded-md px-1 can-hover:min-h-9">
+        <Checkbox
+          label="Everyone in the workspace"
+          checked={allSelected}
+          /*
+           * `mixed` rather than unchecked while partially selected, so the
+           * first click on a half-filled list reads as "include everyone"
+           * instead of ambiguously toggling from a state it does not describe.
+           */
+          indeterminate={someSelected && !allSelected}
+          disabled={disabled || !hasGoverned}
+          onChange={handleToggleAll}
         />
       </div>
+
+      <Separator />
 
       <ul className="flex flex-col gap-0.5">
         {members.map((member) => (
@@ -147,28 +162,31 @@ export function AccessFields({
       </ul>
 
       <p className="text-xs text-ink-600">
-        {access.visibility === "public"
-          ? summarizeOpen(governed.length - withAccess.length, noun)
-          : summarizeRestricted(withAccess.length, noun)}
+        {summarize(selectedCount, allSelected, noun)}
       </p>
     </div>
   );
 }
 
-/** Copy for "Everyone", where the interesting number is who is excluded. */
-function summarizeOpen(excluded: number, noun: string): string {
-  if (excluded === 0) {
-    return `Every member of the workspace can see this ${noun}.`;
+/**
+ * The consequence, in words.
+ *
+ * The "including anyone added later" clause is the one thing the checkboxes
+ * cannot show, and it is the real difference between a fully ticked list and
+ * every name ticked individually.
+ */
+function summarize(
+  selectedCount: number,
+  allSelected: boolean,
+  noun: string,
+): string {
+  if (allSelected) {
+    return `Every member of the workspace can see this ${noun}, including anyone added later.`;
   }
 
-  return `Everyone except ${String(excluded)} member${excluded === 1 ? "" : "s"} can see this ${noun}.`;
-}
-
-/** Copy for "Selected people", where an empty list is the notable case. */
-function summarizeRestricted(included: number, noun: string): string {
-  if (included === 0) {
+  if (selectedCount === 0) {
     return `Only admins will be able to see this ${noun}.`;
   }
 
-  return `${String(included)} member${included === 1 ? "" : "s"} plus all admins can see this ${noun}.`;
+  return `${String(selectedCount)} member${selectedCount === 1 ? "" : "s"} plus all admins can see this ${noun}.`;
 }

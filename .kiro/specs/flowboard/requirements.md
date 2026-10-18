@@ -317,9 +317,17 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 8.16.2. Edits SHALL be held as a local draft and committed on save. Writing each toggle through to the store would make a half-made decision live — granting a member access before the admin has finished deciding — and would pay the simulated latency per checkbox.
 
-8.16.3. The access control SHALL present one list of members with one meaning — "has access" — and a mode above it selecting whether access is open to the workspace or restricted to the list. Under the restricted mode a selection SHALL write an explicit `allow`; under the open mode a de-selection SHALL write an explicit `deny`. A three-state allow/inherit/deny control per member SHALL NOT be used, since it exposes the storage model rather than the question being asked.
+8.16.3. The access control SHALL present a single list of members in which every row has one meaning — "has access" — and SHALL offer "Everyone in the workspace" as a **select-all checkbox over that list**, not as a mode above it. Checking it SHALL select every governed member; clearing it SHALL deselect every governed member. A three-state allow/inherit/deny control per member SHALL NOT be used, since it exposes the storage model rather than the question being asked.
 
-8.16.4. Switching from restricted to open SHALL select every governed member. Carrying a sparse selection into the open mode would turn "not granted yet" into "actively blocked" without the user asking for it. Switching the other way SHALL preserve the selection, which already means what it will mean.
+8.16.3.1. A mode control that puts the member list into two states which look identical and behave differently SHALL NOT be used. Under such a control a ticked member means an explicit `allow` in one state and nothing at all in the other, so the rows on screen do not determine what will be saved. A select-all checkbox has no such hidden state: what the rows show is what is stored.
+
+8.16.3.2. WHILE some but not all governed members are selected, the select-all control SHALL report a mixed state rather than an unchecked one, so that acting on it reads as "include everyone" rather than as a toggle from a state it does not describe.
+
+8.16.4. `visibility` SHALL be derived from the selection rather than chosen separately: every governed member selected SHALL store `public`, and anything less SHALL store `private` with an explicit `allow` per selection. The mapping is not arbitrary — `public` is also what admits members added to the workspace later, which is what "Everyone" claims and a list of named individuals does not.
+
+8.16.4.1. The derivation SHALL apply from the first interaction onward and SHALL NOT normalise on open. A container stored as `public` with explicit denials SHALL render correctly and, if the dialog is opened and saved without a change, SHALL store exactly what it read — an admin who touches nothing SHALL NOT rewrite a representation they never touched.
+
+8.16.4.2. The summary copy SHALL state the "including anyone added later" consequence of a fully selected list, since that is the one difference between it and the same names selected individually that the checkboxes cannot show.
 
 8.16.5. A role that bypasses visibility checks SHALL be shown in the member list as permanently included and SHALL NOT be editable or omitted. An admin missing from a list titled "who can access this" reads as an omission rather than as a bypass, and a grant row for such a role would imply a control that does not exist.
 

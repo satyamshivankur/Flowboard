@@ -91,16 +91,98 @@ describe("choosing access while creating a container", () => {
     await user.click(screen.getByRole("menuitem", { name: /new space/i }));
 
     const dialog = await screen.findByRole("dialog");
-    const mode = within(dialog).getByRole("radiogroup", {
-      name: /access for this space/i,
-    });
 
     expect(
-      within(mode).getByRole("radio", { name: "Selected people" }),
-    ).toBeChecked();
+      within(dialog).getByRole("checkbox", {
+        name: /everyone in the workspace/i,
+      }),
+    ).not.toBeChecked();
+
+    for (const member of ["Bob Mensah", "Carol Diaz"]) {
+      expect(
+        within(dialog).getByRole("checkbox", { name: member }),
+      ).not.toBeChecked();
+    }
 
     // The summary is the one place the consequence is stated in words.
     expect(dialog).toHaveTextContent(/only admins will be able to see/i);
+  });
+
+  /*
+   * "Everyone" is the select-all for the list below it, not a mode above it.
+   * Ticking it fills the list; clearing it empties the list.
+   */
+  it("ticks and clears every member from the Everyone checkbox", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+
+    await waitFor(() => {
+      expect(tree()).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("menuitem", { name: /new space/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    const everyone = within(dialog).getByRole("checkbox", {
+      name: /everyone in the workspace/i,
+    });
+
+    await user.click(everyone);
+
+    expect(everyone).toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Bob Mensah" }),
+    ).toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Carol Diaz" }),
+    ).toBeChecked();
+    expect(dialog).toHaveTextContent(/including anyone added later/i);
+
+    await user.click(everyone);
+
+    expect(everyone).not.toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Bob Mensah" }),
+    ).not.toBeChecked();
+    expect(dialog).toHaveTextContent(/only admins will be able to see/i);
+  });
+
+  /*
+   * A partially filled list reports `mixed`, so the next click reads as
+   * "include everyone" rather than toggling from a state it does not describe.
+   */
+  it("reports a partial selection as mixed, and completes it in one click", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+
+    await waitFor(() => {
+      expect(tree()).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("menuitem", { name: /new space/i }));
+
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "Carol Diaz" }),
+    );
+
+    const everyone = within(dialog).getByRole("checkbox", {
+      name: /everyone in the workspace/i,
+    });
+
+    expect(everyone).toHaveAttribute("aria-checked", "mixed");
+
+    await user.click(everyone);
+
+    expect(everyone).toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Bob Mensah" }),
+    ).toBeChecked();
   });
 
   it("grants only the member ticked at creation", async () => {
@@ -118,7 +200,9 @@ describe("choosing access while creating a container", () => {
     const dialog = await screen.findByRole("dialog");
 
     await user.type(within(dialog).getByLabelText("Name"), "Finance");
-    await user.click(within(dialog).getByRole("checkbox", { name: "Carol Diaz" }));
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "Carol Diaz" }),
+    );
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
@@ -178,19 +262,28 @@ describe("editing access afterwards", () => {
 
     await expandAll(user);
     await openRowMenu(user, "Backlog");
-    await user.click(await screen.findByRole("menuitem", { name: /manage access/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /manage access/i }),
+    );
 
     const dialog = await screen.findByRole("dialog");
-    const mode = within(dialog).getByRole("radiogroup", {
-      name: /access for this list/i,
-    });
 
     // Backlog is public in the seed, so everyone starts ticked.
-    expect(within(mode).getByRole("radio", { name: "Everyone" })).toBeChecked();
-    expect(within(dialog).getByRole("checkbox", { name: "Bob Mensah" })).toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", {
+        name: /everyone in the workspace/i,
+      }),
+    ).toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Bob Mensah" }),
+    ).toBeChecked();
 
-    await user.click(within(dialog).getByRole("checkbox", { name: "Bob Mensah" }));
-    await user.click(within(dialog).getByRole("button", { name: /save access/i }));
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "Bob Mensah" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: /save access/i }),
+    );
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -218,7 +311,9 @@ describe("editing access afterwards", () => {
 
     await expandAll(user);
     await openRowMenu(user, "Infra");
-    await user.click(await screen.findByRole("menuitem", { name: /manage access/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /manage access/i }),
+    );
 
     const dialog = await screen.findByRole("dialog");
 
@@ -228,7 +323,9 @@ describe("editing access afterwards", () => {
     expect(bob).not.toBeChecked();
 
     await user.click(bob);
-    await user.click(within(dialog).getByRole("button", { name: /save access/i }));
+    await user.click(
+      within(dialog).getByRole("button", { name: /save access/i }),
+    );
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
