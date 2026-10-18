@@ -6,18 +6,20 @@ import {
   type ReactNode,
 } from "react";
 
-import {
-  BREAKPOINT_REM,
-  minWidthQuery,
-  SIDEBAR_STATIC_BREAKPOINT,
-} from "@/config/breakpoints";
+import { minWidthQuery, SIDEBAR_STATIC_BREAKPOINT } from "@/config/breakpoints";
 import { readPreference, writePreference } from "@/lib/uiStorage";
 
 import { createSafeContext } from "./createSafeContext";
 
 /**
- * Sidebar chrome: collapsed state, width, which nodes are expanded, and whether
- * the sidebar is currently a modal sheet.
+ * Sidebar chrome: collapsed state, which nodes are expanded, and whether the
+ * sidebar is currently a modal sheet.
+ *
+ * Deliberately **no** width state. The sidebar has two fixed widths — the
+ * `--spacing-sidebar` token expanded and `--spacing-sidebar-rail` collapsed —
+ * so `collapsed` is the whole of it and the width itself is pure CSS. This
+ * previously held a user-draggable `widthRem`, which existed only to feed a
+ * resize handle; removing the handle removed the reason for the state.
  *
  * `isModal` is the **only** breakpoint this app observes from JavaScript.
  * Everything else responsive is a Tailwind variant. It exists because the two
@@ -28,17 +30,10 @@ import { createSafeContext } from "./createSafeContext";
  * (Requirement 20.7.1, 12.7).
  */
 
-const MIN_WIDTH_REM = 12;
-const MAX_WIDTH_REM = 24;
-const DEFAULT_WIDTH_REM = 16;
-
 export interface SidebarContextValue {
   /** Icon-rail mode, at `lg` and above only. */
   readonly collapsed: boolean;
   readonly toggleCollapsed: () => void;
-  /** Expanded width in rem, clamped to the token range. */
-  readonly widthRem: number;
-  readonly setWidthRem: (rem: number) => void;
   readonly expandedIds: ReadonlySet<string>;
   readonly toggleExpanded: (id: string) => void;
   readonly expand: (ids: readonly string[]) => void;
@@ -51,9 +46,9 @@ export interface SidebarContextValue {
 }
 
 const COLLAPSED_KEY = "sidebarCollapsed";
-const WIDTH_KEY = "sidebarWidth";
 
-const { Provider, useValue } = createSafeContext<SidebarContextValue>("Sidebar");
+const { Provider, useValue } =
+  createSafeContext<SidebarContextValue>("Sidebar");
 
 export const useSidebar = useValue;
 
@@ -73,9 +68,6 @@ export function SidebarProvider({
 }) {
   const [collapsed, setCollapsed] = useState(() =>
     readPreference(COLLAPSED_KEY, false),
-  );
-  const [widthRem, setWidthState] = useState(() =>
-    readPreference(WIDTH_KEY, DEFAULT_WIDTH_REM),
   );
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
     () => new Set(initialExpandedIds),
@@ -115,13 +107,6 @@ export function SidebarProvider({
     });
   }, []);
 
-  const setWidthRem = useCallback((rem: number) => {
-    const clamped = Math.min(MAX_WIDTH_REM, Math.max(MIN_WIDTH_REM, rem));
-
-    setWidthState(clamped);
-    writePreference(WIDTH_KEY, clamped);
-  }, []);
-
   const toggleExpanded = useCallback((id: string) => {
     setExpandedIds((current) => {
       const next = new Set(current);
@@ -157,8 +142,6 @@ export function SidebarProvider({
     () => ({
       collapsed,
       toggleCollapsed,
-      widthRem,
-      setWidthRem,
       expandedIds,
       toggleExpanded,
       expand,
@@ -172,8 +155,6 @@ export function SidebarProvider({
     [
       collapsed,
       toggleCollapsed,
-      widthRem,
-      setWidthRem,
       expandedIds,
       toggleExpanded,
       expand,
@@ -186,12 +167,3 @@ export function SidebarProvider({
 
   return <Provider value={value}>{children}</Provider>;
 }
-
-/** Exported for the resizer, so it clamps to the same range as the context. */
-export const SIDEBAR_WIDTH_RANGE_REM = {
-  min: MIN_WIDTH_REM,
-  max: MAX_WIDTH_REM,
-  default: DEFAULT_WIDTH_REM,
-  /** The breakpoint at which the sidebar stops being modal, in rem. */
-  staticAt: BREAKPOINT_REM[SIDEBAR_STATIC_BREAKPOINT],
-} as const;

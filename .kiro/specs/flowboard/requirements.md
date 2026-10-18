@@ -191,7 +191,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 6.5. Each tree row SHALL expose a context menu with the operations valid for its type and the current user's permissions (rename, create child, archive).
 
-6.6. The sidebar SHALL be collapsible to an icon rail to reclaim horizontal space, and its expanded width SHALL be resizable by dragging its edge.
+6.6. The sidebar SHALL be collapsible to an icon rail to reclaim horizontal space. It SHALL have exactly two widths — one expanded, one for the rail — both declared as `rem` tokens. It SHALL NOT be user-resizable: a drag-to-resize handle was built and then removed, because the only thing it bought over a fixed width was a per-user preference, and it cost a pointer-event state loop, a clamp duplicated between CSS tokens and JavaScript constants, and the one inline `style=` on a static layout element.
 
 6.7. Tree rows SHALL be navigable by keyboard with arrow keys for move and expand/collapse, and Enter to select.
 
@@ -359,7 +359,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 12.1. Presentation-level cross-cutting concerns SHALL be provided via React Context, distinct from the Zustand store which holds domain state.
 
-12.2. The system SHALL provide the following Contexts: `ToastContext` (queue and dispatch of notifications), `DensityContext` (comfortable/compact UI density), `NavigationContext` (selected list, active view, open task), `ConfirmContext` (promise-based confirmation dialogs), `SimulationContext` (latency and failure-injection settings), `SidebarContext` (collapsed state, width, expanded node set, and whether the sidebar is currently modal).
+12.2. The system SHALL provide the following Contexts: `ToastContext` (queue and dispatch of notifications), `DensityContext` (comfortable/compact UI density), `NavigationContext` (selected list, active view, open task), `ConfirmContext` (promise-based confirmation dialogs), `SimulationContext` (latency and failure-injection settings), `SidebarContext` (collapsed state, expanded node set, and whether the sidebar is currently modal). `SidebarContext` SHALL NOT hold a width: the sidebar has two fixed widths and both are CSS (6.6).
 
 12.7. Responsive behaviour SHALL be expressed in CSS by default. A breakpoint SHALL be observed from JavaScript only where the decision is about **behaviour** rather than appearance — specifically, whether the sidebar is a focus-trapping modal sheet or part of the static layout, since a sheet left open while the viewport widens would otherwise become an invisible focus trap. Layout differences achievable with Tailwind variants SHALL NOT be routed through JavaScript.
 
@@ -387,13 +387,14 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 13.3. The boilerplate `src/App.css` SHALL be deleted and the boilerplate rules in `src/index.css` replaced.
 
-13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly three, each annotated in code and listed in the README. What they share is that the value is produced per pointer event, which no static class can express:
+13.4. Inline `style=` SHALL NOT be used for layout or theming. The permitted uses are exactly two, each annotated in code and listed in the README. What they share is that the value is produced per pointer event, which no static class can express:
 
 | Exception                                                   | Why it cannot be a class                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The sidebar resizer's live width                            | A user-dragged value, written in `rem` and clamped to the token range                                                                                                                                                                                       |
 | Positioned overlay coordinates — the tooltip's `top`/`left` | A viewport position from `getBoundingClientRect`. Required because an absolutely positioned overlay is clipped by any ancestor with `overflow` set, and `z-index` cannot escape an overflow clip, so such overlays must be portalled and positioned `fixed` |
 | The bottom sheet's live drag-to-dismiss offset              | A per-pointer-event translation, converted from the pointer's `clientY` travel into `rem` before it is written                                                                                                                                              |
+
+13.4.3. The sidebar's width was a third exception while the sidebar was drag-resizable, because a user-dragged width is a value produced per pointer event. The resize handle has since been removed in favour of two fixed widths — `--spacing-sidebar` expanded and `--spacing-sidebar-rail` collapsed — so the sidebar is styled entirely in CSS and the exception is retired. Reintroducing a resizable sidebar SHALL be treated as reintroducing the exception.
 
 13.4.2. The drag-and-drop library's per-frame transforms SHALL NOT be routed through React. This was a fourth exception while the project used `@dnd-kit/core` 6, which returned a `transform` object for a component to write to `style` on every pointer event. The current `@dnd-kit/dom` applies those transforms to the element directly, so the exception no longer exists — and reintroducing a library that hands per-frame geometry back to React for rendering SHALL be treated as reintroducing the exception, requiring it to be documented here rather than added silently.
 
@@ -483,9 +484,11 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 16.1. The layout SHALL fill the viewport height with independent scroll regions for the sidebar, the board columns and the task table. The page itself SHALL NOT scroll vertically.
 
-16.2. At viewports of `64rem` and above the sidebar SHALL collapse to an icon rail and SHALL be resizable, with both states persisted for the session. Below `64rem` the sidebar SHALL instead behave as specified in Requirement 20.
+16.2. At viewports of `64rem` and above the sidebar SHALL collapse to an icon rail, with the collapsed state persisted for the session. Its width SHALL be fixed per state rather than resizable, per 6.6. Below `64rem` the sidebar SHALL instead behave as specified in Requirement 20.
 
-16.3. A density toggle SHALL switch between comfortable and compact modes, affecting row height, card padding and font size through `DensityContext`, with the choice persisted. The toggle SHALL be offered only where compact density does not reduce touch targets below the minimum in 20.9.
+16.3. Density SHALL be modelled as comfortable and compact modes, applied as a single `data-density` attribute on the shell and read by a `density-compact` Tailwind variant, so one attribute retunes row height, card padding and font size app-wide. The variant SHALL be gated on a fine pointer, so no compact utility can reduce a touch target below the minimum in 20.9.
+
+16.3.1. The app SHALL NOT ship a user-facing density control. A segmented toggle lived in the sidebar footer and has been removed; the mechanism, the persisted preference and the `density-compact` utilities remain, and Storybook's density toolbar global is what exercises them. Two consequences follow and are accepted rather than overlooked: `DensityContext`'s setters have no caller in application code, and a user whose stored preference is already `compact` has no in-app way to return to comfortable. WHEN a density control is reintroduced, it SHALL satisfy the touch-target constraint in 16.3 at whatever surface it lands on.
 
 16.4. The top bar SHALL be a single row combining breadcrumbs, view switcher, search, developer panel and user switcher, with a fixed height not exceeding `3.5rem`. Below `48rem` it SHALL reduce to the subset defined in 20.4.
 
@@ -605,7 +608,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 | Surface      | Base (`<40rem`)                                                                                                            | `md` (`≥48rem`)                       | `lg` (`≥64rem`)                    |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------- |
-| Sidebar      | Off-canvas slide-over, opened from a top-bar menu button, closing on selection, Escape and overlay tap                     | Off-canvas slide-over                 | Persistent, collapsible, resizable |
+| Sidebar      | Off-canvas slide-over, opened from a top-bar menu button, closing on selection, Escape and overlay tap                     | Off-canvas slide-over                 | Persistent, collapsible to a rail  |
 | Top bar      | Menu button, truncated current-list name, search icon, user avatar; view switcher and dev panel move into an overflow menu | Adds the view switcher inline         | Full single row per 16.4           |
 | Breadcrumbs  | Current list name only, with the full path in the sidebar                                                                  | Last two segments                     | Full path                          |
 | Main content | Full viewport width                                                                                                        | Remaining width beside the slide-over | Remaining width beside the sidebar |

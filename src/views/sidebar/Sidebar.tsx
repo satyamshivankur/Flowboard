@@ -5,9 +5,7 @@ import { Drawer } from "@/components/ui/Drawer";
 import { IconButton } from "@/components/ui/IconButton";
 import { Menu } from "@/components/ui/Menu";
 import { ScrollShadow } from "@/components/ui/ScrollShadow";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { CONTAINER_REGISTRY } from "@/config/containers";
-import { useDensity } from "@/contexts/DensityContext";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { usePermissions } from "@/controllers/hooks/usePermissions";
 import {
@@ -20,14 +18,12 @@ import {
   ContainerFormDialog,
   type ContainerFormRequest,
 } from "./ContainerFormDialog";
-import { SidebarResizer } from "./SidebarResizer";
 import { SidebarTree } from "./SidebarTree";
 
-/** The tree plus its header and footer, shared by both sidebar forms. */
+/** The tree plus its header, shared by both sidebar forms. */
 function SidebarBody({ onAfterSelect }: { onAfterSelect?: () => void }) {
   const tree = useVisibleTree();
   const { collapsed } = useSidebar();
-  const { density, setDensity } = useDensity();
   const permissions = usePermissions();
 
   const [request, setRequest] = useState<ContainerFormRequest | null>(null);
@@ -102,26 +98,6 @@ function SidebarBody({ onAfterSelect }: { onAfterSelect?: () => void }) {
         />
       </ScrollShadow>
 
-      {/*
-        Density is a desktop affordance: compact rows and a 2.75rem touch target
-        are in direct conflict, so the toggle is only offered where a fine
-        pointer makes the denser layout usable (Requirement 16.3, 20.9).
-      */}
-      {!collapsed && (
-        <div className="hidden shrink-0 border-t border-border px-3 py-2 md:block">
-          <SegmentedControl
-            ariaLabel="Density"
-            value={density}
-            onChange={setDensity}
-            className="w-full"
-            options={[
-              { value: "comfortable", label: "Comfortable" },
-              { value: "compact", label: "Compact" },
-            ]}
-          />
-        </div>
-      )}
-
       <ContainerFormDialog
         request={request}
         onClose={() => {
@@ -146,14 +122,8 @@ function SidebarBody({ onAfterSelect }: { onAfterSelect?: () => void }) {
  * actions and one dialog regardless of which shell is showing.
  */
 export function Sidebar() {
-  const {
-    collapsed,
-    toggleCollapsed,
-    widthRem,
-    isModal,
-    isSheetOpen,
-    closeSheet,
-  } = useSidebar();
+  const { collapsed, toggleCollapsed, isModal, isSheetOpen, closeSheet } =
+    useSidebar();
 
   if (isModal) {
     return (
@@ -172,16 +142,18 @@ export function Sidebar() {
   return (
     <aside
       /*
-       * One of the three documented inline-`style` exceptions — the resizer
-       * one. The width is a live, user-dragged value in rem, so it cannot be a
-       * utility class, and it is rem rather than px, keeping the one dynamic
-       * dimension in the app consistent with the rest
-       * (Requirement 13.4, 22.1).
+       * Two fixed widths, both from `--spacing-*` tokens, so the sidebar is
+       * styled entirely in CSS.
+       *
+       * This replaced a drag-to-resize handle. That handle was the reason this
+       * element carried an inline `style`: a user-dragged width is a value per
+       * pointer event, which no utility class can express, so it was one of the
+       * documented `style=` exceptions (Requirement 13.4). Fixed widths retire
+       * the exception along with the handle.
        */
-      style={collapsed ? undefined : { width: `${String(widthRem)}rem` }}
       className={cn(
         "relative hidden shrink-0 flex-col border-r border-border bg-surface lg:flex",
-        collapsed && "w-sidebar-rail",
+        collapsed ? "w-sidebar-rail" : "w-sidebar",
       )}
     >
       <SidebarBody />
@@ -200,8 +172,6 @@ export function Sidebar() {
           onClick={toggleCollapsed}
         />
       </div>
-
-      {!collapsed && <SidebarResizer />}
     </aside>
   );
 }

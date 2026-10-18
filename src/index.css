@@ -134,10 +134,14 @@
    *
    * These coexist with the numeric scale: `p-4` is still 1rem.
    */
+  /*
+   * The sidebar's two widths, and there are only two: expanded and the
+   * collapsed icon rail. A `--spacing-sidebar-min`/`-max` pair used to sit
+   * here to bound a drag-to-resize handle; the handle is gone, and so is the
+   * clamp it needed.
+   */
   --spacing-sidebar: 16rem;
   --spacing-sidebar-rail: 3.5rem;
-  --spacing-sidebar-min: 12rem;
-  --spacing-sidebar-max: 24rem;
   --spacing-topbar: 3.5rem;
   --spacing-column: 18.75rem;
   --spacing-column-mobile: 22rem;

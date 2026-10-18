@@ -233,7 +233,8 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 6.2, 6.6, 12.2, 16.2_
 - [x] 9.6.1 Add `createSafeContext` and the UI-preference helper
   - One factory producing a Provider plus a typed hook that throws outside it, so the rule in 12.3 is structural rather than restated six times
-  - `lib/uiStorage` for density, sidebar width and collapsed state — deliberately separate from `PersistenceAdapter`, which carries domain state. Losing a preference is an annoyance, not data loss, so every failure path there degrades silently
+  - `lib/uiStorage` for density, the sidebar's collapsed state and the active view — deliberately separate from `PersistenceAdapter`, which carries domain state. Losing a preference is an annoyance, not data loss, so every failure path there degrades silently
+  - A `sidebarWidth` preference was here too, until task 27 removed the resize handle it fed
   - _Requirements: 12.3, 16.2, 16.3_
 - [x] 9.7 Add the sidebar's modal/static boundary to `SidebarContext`
   - An `isModal` flag from a single `matchMedia(minWidthQuery('lg'))` subscription, closing the sheet when the boundary is crossed so it cannot persist as an invisible focus trap
@@ -333,10 +334,10 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [x] 13.3 Per-row context menu
   - Rename, create child, archive — each disabled with a reason when the capability check fails
   - _Requirements: 6.5, 8.9, 8.11_
-- [x] 13.4 Collapse-to-rail and drag-to-resize at `lg` and above
-  - Both persisted; the resizer's live width is the second documented inline-`style` exception
-  - The resizer writes `rem` (`${px / 16}rem`), clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, so even the one dynamic dimension obeys the unit rule
-  - _Requirements: 6.6, 13.4, 16.2, 22.1, 22.3_
+- [x] 13.4 Collapse-to-rail at `lg` and above
+  - **Drag-to-resize was built here and removed in task 27.** Recorded as built: the resizer wrote `rem` (`${px / 16}rem`) clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, and its live width was one of the documented inline-`style` exceptions
+  - Now: two fixed widths, `w-sidebar` expanded and `w-sidebar-rail` collapsed. The collapsed state is still persisted; the width is not state at all
+  - _Requirements: 6.6, 13.4, 13.4.3, 16.2, 22.1, 22.3_
 - [x] 13.4.1 Off-canvas sidebar below `lg`
   - Slide-over built on the `Drawer` primitive, opened from the top-bar menu button, closing on selection, Escape and overlay tap; focus trapped while open and restored on close
   - Tree rows at `h-11` for touch
@@ -534,6 +535,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [x] 19.1 Verify independent scroll regions and that the page never scrolls vertically
   - _Requirements: 16.1_
 - [x] 19.2 Wire the density toggle through every affected surface and verify persistence
+  - **The toggle itself was removed in task 27.** The mechanism and the `@media (pointer: fine)` guard below are untouched and still the reason compact can never shrink a touch target; what is gone is the control that set it
   - Confirm it is hidden below `md` and cannot reduce a touch target below `2.75rem`
   - **The clamp was a comment, not a rule.** `src/index.css` claimed density was "clamped to comfortable below md"; the variant was a plain attribute selector with no condition on it. Only `TreeItem` was actually safe, and by accident — it happened to pair `density-compact:` with `can-hover:`
   - The condition now lives in the variant: `density-compact` is wrapped in `@media (pointer: fine)`, so no `density-compact:` utility can shrink a target below the minimum however it is written. Verified against the emitted CSS, not just the source
@@ -648,9 +650,10 @@ nothing further was added — the README names them as the attempted pair.
 - [ ] 24.8 Write the AI usage log, with the long form in `AI_USAGE.md`
   - _Requirements: 19.8_
 - [ ] 24.9 List every inline `style=` exception with file location and justification
-  - Three, not four: `views/sidebar/Sidebar.tsx` (resizer live width), `components/ui/Tooltip.tsx` (portalled overlay coordinates), `components/ui/Drawer.tsx` (bottom sheet drag-to-dismiss offset)
-  - dnd-kit's sortable transform was the fourth and is gone — `@dnd-kit/dom` writes it to the element directly, so neither `TaskCard` nor `TreeItem` carries an inline style (Requirement 13.4.2)
-  - _Requirements: 13.4, 13.4.2, 19.9_
+  - Two, not four: `components/ui/Tooltip.tsx` (portalled overlay coordinates) and `components/ui/Drawer.tsx` (bottom sheet drag-to-dismiss offset)
+  - dnd-kit's sortable transform was retired in task 26 — `@dnd-kit/dom` writes it to the element directly, so neither `TaskCard` nor `TreeItem` carries an inline style (Requirement 13.4.2)
+  - The sidebar resizer's live width was retired in task 27, along with the handle (Requirement 13.4.3)
+  - _Requirements: 13.4, 13.4.2, 13.4.3, 19.9_
 - [ ] 24.9.1 Document the `rem` unit rule
   - The rule, the four exceptions taken under 22.4 with their locations, and the repeatable verification command
   - _Requirements: 19.13, 22.5, 22.7_
@@ -671,7 +674,7 @@ nothing further was added — the README names them as the attempted pair.
 - [ ] 25.1 Run `npm run lint`, `npm run build` and `npm run test` clean
   - _Requirements: 10.5, 18.1_
 - [ ] 25.2 Grep the repo to prove the styling constraints hold
-  - No `.css` file other than `src/index.css`; no `styled`/`emotion`/`sass` dependencies; every `style=` occurrence is one of the three documented exceptions
+  - No `.css` file other than `src/index.css`; no `styled`/`emotion`/`sass` dependencies; every `style=` occurrence is one of the two documented exceptions
   - _Requirements: 13.1, 13.2, 13.4_
 - [ ] 25.3 Run the `px` audit and confirm every hit is an allowed exception
   - `rg -n '\bpx\b' src` — remaining matches must be hairline borders, shadow offsets, pointer-travel thresholds (the sensor activation distance and touch tolerance, and the sheet's drag-to-dismiss threshold) or raster intrinsic sizes, and each must be annotated in code
@@ -746,3 +749,43 @@ drag felt jerky, and the finding that the project was on the legacy
   - Same gap as 14.7.1, now with a different mechanism behind it: one `PointerSensor` resolving its constraint from `event.pointerType` rather than a separate `TouchSensor`. Confirm a vertical swipe scrolls, a horizontal swipe pages columns, and only a long press starts a drag
   - Unchecked for the same reason as before — jsdom has no touch model and no device was available
   - _Requirements: 20.8_
+
+---
+
+## Phase 11 — Sidebar simplification
+
+Two features built in Phase 5 and removed here. Both were working; both were
+removed because what they cost exceeded what they bought.
+
+- [x] 27. Remove the sidebar resizer and the density toggle
+- [x] 27.1 Delete the drag-to-resize handle
+  - `src/views/sidebar/SidebarResizer.tsx` deleted. It was 112 lines: a pointer-event loop coalesced through `requestAnimationFrame`, a `clientX`-to-rem conversion against the live root font size, window-level `pointermove`/`pointerup` listeners, a `select-none` body class, a double-click reset, ArrowLeft/ArrowRight nudges, and full `role="separator"` ARIA
+  - The sidebar now uses two fixed widths: `w-sidebar` expanded, `w-sidebar-rail` collapsed, both already-existing tokens
+  - What it actually cost against a per-user width nobody asked for: a 60Hz state loop, a clamp duplicated between two CSS tokens and two JavaScript constants, and the only inline `style=` on a static layout element
+  - _Requirements: 6.6, 13.4, 13.4.3, 16.2_
+- [x] 27.2 Strip width state from `SidebarContext`
+  - Gone: `widthRem`, `setWidthRem`, the `MIN`/`MAX`/`DEFAULT_WIDTH_REM` constants, the `sidebarWidth` persistence key, and the `SIDEBAR_WIDTH_RANGE_REM` export
+  - `SIDEBAR_WIDTH_RANGE_REM` was imported only by the resizer, and it held the sole use of `BREAKPOINT_REM` in this module — so that import went too. `minWidthQuery` and `SIDEBAR_STATIC_BREAKPOINT` stay: they feed the one `matchMedia` subscription, which is untouched
+  - `collapsed` is now the whole of the sidebar's sizing state, and the width never leaves CSS
+  - Orphaned `flowboard:ui:sidebarWidth` entries are left in users' `localStorage` rather than migrated — `readPreference` ignores keys nothing reads, so a cleanup pass would be code that exists to delete three bytes
+  - _Requirements: 12.2, 16.2_
+- [x] 27.3 Retire the third inline-`style` exception
+  - `src/views/sidebar/Sidebar.tsx` no longer carries a `style=` at all. Two remain in the project — `Tooltip.tsx` (portalled overlay coordinates) and `Drawer.tsx` (bottom sheet drag offset) — and both are genuinely per-pointer-event rather than attached to a static layout element
+  - Requirement 13.4's count went four → three → two across tasks 26 and 27. The ordinal numbering in the code comments ("the second documented exception") was removed in favour of naming them, since counting to a number that keeps changing is how those comments went stale in the first place
+  - _Requirements: 13.4, 13.4.3, 19.9_
+- [x] 27.4 Delete the dead width tokens
+  - `--spacing-sidebar-min` and `--spacing-sidebar-max` removed from `src/index.css`. Both were already dead _as CSS_ before this task — no utility class ever referenced either, because the clamp lived in JavaScript constants that duplicated their values. That duplication is exactly what 22.x exists to prevent, and it sat there unnoticed
+  - `--spacing-sidebar` and `--spacing-sidebar-rail` stay; they are now the sidebar's only two widths
+  - _Requirements: 22.1, 22.3_
+- [x] 27.5 Remove the density toggle from the sidebar footer
+  - The `SegmentedControl` and its surrounding footer `div` are gone, along with `SidebarBody`'s `useDensity()` call. The footer was the only thing in it, so the element went with the control
+  - **`DensityContext` is deliberately kept.** The mechanism is the valuable half: `AppShell` still writes `data-density` on the shell root, and the `density-compact` variant — wrapped in `@media (pointer: fine)` so it can never shrink a touch target — is still read by five utilities across `Card`, `Skeleton`, `TreeItem` and `TaskTable`. Storybook's density toolbar global still exercises all five, so they are not dead code
+  - **Two consequences, accepted rather than overlooked.** `setDensity` and `toggleDensity` now have no caller in application code. And a user whose stored preference is already `compact` has no in-app route back to comfortable, because the control that could set it is the one removed. Recorded in Requirement 16.3.1 rather than left to be rediscovered
+  - Verified the footer control was genuinely the only density setter before removing it: the top bar's overflow menu carries view switches only, `ViewSwitcher` uses `SegmentedControl` for board/list rather than density, and no command-palette action or keyboard shortcut calls either setter
+  - _Requirements: 16.3, 16.3.1_
+- [x] 27.6 Update the tests and stories
+  - Deleted `contexts.test.tsx`'s "clamps the width to the token range and persists it" — nothing in it survives fixed widths. The remaining `SidebarContext` tests all cover the modal/sheet boundary and are untouched
+  - `DensityContext`'s own tests stay and still pass: neither renders the sidebar's control, so both exercise the context directly
+  - `Controls.stories.tsx` still shows a Comfortable/Compact `SegmentedControl`, driven by local `useState` rather than the context. Left as-is — it documents the primitive, not a shipped feature
+  - Corrected two doc comments in `Responsive.stories.tsx` that described the sidebar as resizable, and `uiStorage.ts`'s header, which listed "sidebar width" among the preferences it carries
+  - _Requirements: 18.1, 21.22_

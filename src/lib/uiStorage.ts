@@ -1,5 +1,5 @@
 /**
- * Durable UI preferences — density, sidebar width, collapsed state.
+ * Durable UI preferences — density, sidebar collapsed state, active view.
  *
  * Kept separate from `PersistenceAdapter`, which carries domain state. These
  * are presentation choices: losing them is a mild annoyance, not data loss, so

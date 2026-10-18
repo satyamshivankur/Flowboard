@@ -21,7 +21,8 @@ import { TaskListView } from "./list/TaskListView";
  *   by side from `md`.
  * - **List** — stacked cards and a sort dropdown at base, a real table with
  *   sortable headers from `md`.
- * - **Sidebar** — an off-canvas sheet below `lg`, static and resizable above.
+ * - **Sidebar** — an off-canvas sheet below `lg`, static above, at one of two
+ *   fixed widths depending on whether it is collapsed to its icon rail.
  * - **Top bar** — a single row throughout, shedding labels for icons at base.
  *
  * Note what is *not* here: there is no story per viewport for the drawer's
@@ -120,7 +121,7 @@ export const ShellTablet: Story = {
   render: ShellFrame,
 };
 
-/** From `lg` the sidebar becomes static and resizable. */
+/** From `lg` the sidebar becomes a static region of the layout. */
 export const ShellDesktop: Story = {
   name: "Shell · desktop",
   parameters: { viewport: { defaultViewport: "laptop" } },

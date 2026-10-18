@@ -25,7 +25,10 @@ function stubViewport(isDesktop: boolean) {
     matches: isDesktop,
     media: "",
     onchange: null,
-    addEventListener: (_: string, listener: (e: MediaQueryListEvent) => void) => {
+    addEventListener: (
+      _: string,
+      listener: (e: MediaQueryListEvent) => void,
+    ) => {
       listeners.add(listener);
     },
     removeEventListener: (
@@ -481,32 +484,6 @@ describe("SidebarContext", () => {
       "b",
       "existing",
     ]);
-  });
-
-  it("clamps the width to the token range and persists it", () => {
-    const { result, unmount } = renderHook(() => useSidebar(), {
-      wrapper: SidebarProvider,
-    });
-
-    act(() => {
-      result.current.setWidthRem(999);
-    });
-
-    expect(result.current.widthRem).toBe(24);
-
-    act(() => {
-      result.current.setWidthRem(1);
-    });
-
-    expect(result.current.widthRem).toBe(12);
-
-    unmount();
-
-    const remounted = renderHook(() => useSidebar(), {
-      wrapper: SidebarProvider,
-    });
-
-    expect(remounted.result.current.widthRem).toBe(12);
   });
 
   it("is not modal at desktop width", () => {

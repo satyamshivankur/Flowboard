@@ -753,16 +753,16 @@ Because they are `rem`, a user at a 150% root font size receives the tablet layo
 
 ### Per-surface adaptation
 
-| Surface        | Base                                                                          | `md`                                  | `lg`                                       |
-| -------------- | ----------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------ |
-| Sidebar        | Off-canvas slide-over via `Dialog`, closes on select/Escape/overlay           | Off-canvas                            | Persistent, collapsible to rail, resizable |
-| Top bar        | Menu, list name, search icon, avatar; view switcher and dev panel in overflow | Adds inline view switcher             | Full row, `h-14`                           |
-| Breadcrumbs    | Current list only                                                             | Last two segments                     | Full path                                  |
-| Board          | One column at ~`min(88vw, 22rem)`, `snap-x snap-mandatory`, position dots     | `18.75rem` columns, horizontal scroll | Same                                       |
-| List view      | Stacked cards, sort in a dropdown                                             | Table with sticky header              | Same                                       |
-| Drawer         | Full-height bottom sheet, `max-h-[92dvh]`                                     | Right panel, `32.5rem`                | `36rem`                                    |
-| Create task    | Floating action button                                                        | Inline column affordance              | Inline                                     |
-| Density toggle | Hidden (touch needs the larger targets)                                       | Available                             | Available                                  |
+| Surface        | Base                                                                          | `md`                                  | `lg`                            |
+| -------------- | ----------------------------------------------------------------------------- | ------------------------------------- | ------------------------------- |
+| Sidebar        | Off-canvas slide-over via `Dialog`, closes on select/Escape/overlay           | Off-canvas                            | Persistent, collapsible to rail |
+| Top bar        | Menu, list name, search icon, avatar; view switcher and dev panel in overflow | Adds inline view switcher             | Full row, `h-14`                |
+| Breadcrumbs    | Current list only                                                             | Last two segments                     | Full path                       |
+| Board          | One column at ~`min(88vw, 22rem)`, `snap-x snap-mandatory`, position dots     | `18.75rem` columns, horizontal scroll | Same                            |
+| List view      | Stacked cards, sort in a dropdown                                             | Table with sticky header              | Same                            |
+| Drawer         | Full-height bottom sheet, `max-h-[92dvh]`                                     | Right panel, `32.5rem`                | `36rem`                         |
+| Create task    | Floating action button                                                        | Inline column affordance              | Inline                          |
+| Density toggle | Not shipped — see "Density has a mechanism and no control"                    | Not shipped                           | Not shipped                     |
 
 The board's mobile form is worth noting: scroll-snap gives column-paging that feels native and costs two utility classes, where a tab bar over columns would need its own state and would fight the horizontal drag gesture.
 
@@ -1023,13 +1023,21 @@ An earlier draft of this design had one, justified by three adaptations being "s
 - **List view** — a genuine DOM difference, but `hidden md:block` / `md:hidden` covers it. `display: none` removes the hidden form from the accessibility tree and the tab order, so duplicating markup costs render work and nothing else. One view-model hook feeds both presentational components, so no logic is duplicated.
 - **dnd-kit sensors** — `DragDropProvider` registers the pointer and keyboard sensors simultaneously and selects by event type, and the pointer sensor resolves its own activation threshold from `event.pointerType`. Touch is a pointer-capability concern, not a width one.
 - **Calendar days are not instants.** A due date is stored as an instant (09:00 UTC), but what a user picks is a calendar day, and `@rehookify/datepicker` — like most calendar libraries — represents a day as _local midnight_. Reading one of its dates with `getUTC*` yields the previous day for anyone east of Greenwich, which is precisely the bug that shipped for one commit: a cell labelled "November 4" carried the key `2026-11-03`. The conversion surface is four functions in `src/lib/date.ts` (`toDayKey`, `fromDayKey`, `toDueDateIso`, `dueDateToDayKey`) and nothing crosses between the two representations without passing through them. The rule: **stored instants are read in UTC, calendar-library dates are read locally.** `src/lib/date.test.ts` pins this, and the test suite runs under `TZ=Asia/Kolkata` so a UTC-only runner cannot make those assertions pass vacuously — the half-hour offset also catches the assumption that offsets are whole hours.
-- **Tooltips, density toggle, hover affordances** — `can-hover`, `coarse-pointer`, `hidden md:flex`. All CSS.
+- **Tooltips, density, hover affordances** — `can-hover`, `coarse-pointer`, `density-compact`, `hidden md:flex`. All CSS.
 
 Exactly one case survives: the **sidebar**. Below `lg` it is a focus-trapping, scroll-locking Headless UI `Dialog`; at `lg` it is a static `aside`. That difference is _behaviour_, and behaviour cannot be expressed in a media query. Rendering both forms would leave a mounted `Dialog` that still traps focus if a user opens the sheet at phone width and then widens the window. So `SidebarContext` owns an `isModal` flag backed by a single `matchMedia('(min-width: 64rem)')` subscription, and closes the sheet when that boundary is crossed.
 
 That one case is the entire justification for `src/config/breakpoints.ts`. It holds the breakpoint numbers, `minWidthQuery`, and the name of that boundary — nothing else. Because those numbers duplicate the `--breakpoint-*` tokens, `scripts/check-units.mjs` parses both files and fails the lint step when they drift in either direction, or when a breakpoint is declared in `px`. Duplication with an enforced check is defensible; duplication with a comment asserting the two "cannot disagree" is not.
 
-All six are produced by one `createSafeContext(name)` factory, so the "throws outside its provider" rule of 12.3 is structural rather than restated six times. Durable preferences — density, sidebar width, collapsed state — go through `lib/uiStorage`, kept separate from `PersistenceAdapter` because losing a preference is an annoyance rather than data loss, and every failure path there degrades silently.
+All six are produced by one `createSafeContext(name)` factory, so the "throws outside its provider" rule of 12.3 is structural rather than restated six times. Durable preferences — density, the sidebar's collapsed state, the active view — go through `lib/uiStorage`, kept separate from `PersistenceAdapter` because losing a preference is an annoyance rather than data loss, and every failure path there degrades silently.
+
+A `sidebarWidth` preference used to sit alongside them, feeding a drag-to-resize handle. Both are gone: the sidebar has two fixed widths, `--spacing-sidebar` expanded and `--spacing-sidebar-rail` collapsed, so `collapsed` is the whole of its sizing state and the width itself never leaves CSS. What the handle actually cost was a pointer-event state loop at 60Hz, a clamp duplicated between two CSS tokens and two JavaScript constants, and the only inline `style=` on a static layout element — against a per-user preference nobody had asked for. Orphaned `flowboard:ui:sidebarWidth` entries are left in place rather than migrated; `readPreference` ignores keys nothing reads.
+
+### Density has a mechanism and no control
+
+The segmented Comfortable/Compact toggle that lived in the sidebar footer has been removed. The mechanism it drove is untouched and is the part worth keeping: `DensityProvider` holds the value, `AppShell` writes it to `data-density` on the shell root, and the `density-compact` variant — wrapped in `@media (pointer: fine)` so it can never shrink a touch target — is read by five utilities across `Card`, `Skeleton`, `TreeItem` and `TaskTable`.
+
+Two consequences are worth naming rather than discovering later. `setDensity` and `toggleDensity` now have no caller in application code, so the context is a provider plus a reader. And a user whose stored preference is already `compact` has no in-app route back to comfortable, because the only control that could set it is gone. Storybook's density toolbar global is what still exercises the variant, which is why the five utilities are not dead code.
 
 `ToastContext` is outermost in `AppProviders`, since the view-model hooks surface every failed mutation through it and anything that can fail must sit inside it. The rest are order-independent.
 
@@ -1256,8 +1264,7 @@ The only stylesheet in the project. Tailwind v4 reads tokens from `@theme` and e
    */
   --spacing-sidebar: 16rem;
   --spacing-sidebar-rail: 3.5rem;
-  --spacing-sidebar-min: 12rem;
-  --spacing-sidebar-max: 24rem;
+
   --spacing-topbar: 3.5rem;
   --spacing-column: 18.75rem;
   --spacing-column-mobile: 22rem;
@@ -1357,13 +1364,13 @@ Designed first, which is what forces the hierarchy decisions that the desktop la
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │ Sidebar    │ Content                                                     │
 │ w-sidebar  │ ┌─────────┬─────────┬─────────┐    ┌──────── Drawer ──────┐ │
-│ resizable  │ │ To do   │ In prog │ Done    │    │ Title                │ │
+│ fixed width│ │ To do   │ In prog │ Done    │    │ Title                │ │
 │ collapsible│ │ ┌─────┐ │ ┌─────┐ │ ┌─────┐ │    │ Status   · Priority  │ │
 │ ▸ Space    │ │ │Card │ │ │Card │ │ │Card │ │    │ Assignees· Due       │ │
 │   ▾ Folder │ │ └─────┘ │ └─────┘ │ └─────┘ │    │ Description          │ │
 │     • List │ │  scroll │  scroll │  scroll │    │ Subtasks             │ │
 │ ─────────  │ └─────────┴─────────┴─────────┘    └──────────────────────┘ │
-│ Density    │          ← horizontal scroll →          w-drawer            │
+│ (collapse) │          ← horizontal scroll →          w-drawer            │
 └────────────┴─────────────────────────────────────────────────────────────┘
 ```
 
@@ -1423,13 +1430,13 @@ The sidebar tree takes the opposite side of the same trade. A drop there is not 
 
 ### Exception lists
 
-- **Inline `style`** (13.4, 19.9) — three now, not four. dnd-kit's `transform` was the fourth while the project was on 6.x; `@dnd-kit/dom` writes it to the element directly, so neither `TaskCard` nor `TreeItem` carries an inline style any more. What remains is the sidebar resizer's live width, the bottom sheet's drag-to-dismiss offset, and positioned overlay coordinates.
+- **Inline `style`** (13.4, 19.9) — two now, down from four. dnd-kit's `transform` was retired when `@dnd-kit/dom` took over writing it to the element directly, and the sidebar resizer's live width was retired with the resize handle itself. What remains is the bottom sheet's drag-to-dismiss offset and positioned overlay coordinates — both genuinely per-pointer-event, neither attached to a static layout element.
 
   The last one is worth explaining, because it was discovered the hard way. `Tooltip` originally positioned itself `absolute` inside a `relative` wrapper. An absolutely positioned element is clipped by any ancestor with `overflow` set, and **`z-index` cannot escape an overflow clip** — so the tooltip was cut off almost everywhere: tree rows sit inside the sidebar's scroll container, card avatars inside a board column's, and everything inside the shell's `overflow-hidden`. It looked correct only in Storybook, which has no clipping ancestor. The fix is a portal to `document.body` with `position: fixed`, which means the coordinates have to be inline. Any future popover not already handled by Headless UI's anchoring needs the same treatment (13.4.1).
 
 - **`px` units** (22.4) — the pointer activation distance and the touch press tolerance, unchanged by the migration. These are pointer-movement thresholds in device pixels, not rendered dimensions; expressing a drag threshold in `rem` would make it change with font size, which is meaningless.
 
-The sidebar resizer writes its live width in `rem` (`${px / 16}rem`) rather than `px`, clamped between `--spacing-sidebar-min` and `--spacing-sidebar-max`, so even the one dynamic dimension in the app obeys the unit rule.
+The bottom sheet's drag offset is converted from the pointer's `clientY` travel into `rem` before it is written, so even the one remaining dynamic dimension obeys the unit rule. The sidebar used to be the other such case; its width is now two tokens and no arithmetic.
 
 ### Loading and feedback
 
