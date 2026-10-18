@@ -204,6 +204,15 @@ export function TreeItem({
             type="button"
             tabIndex={-1}
             aria-hidden={!expandable}
+            /*
+             * Named even though it is skipped in the tab order: the row is
+             * reachable by pointer and by assistive tech, and "button" alone
+             * says nothing about what it does. Also the only way to address
+             * the chevron from a browser test without a DOM query.
+             */
+            aria-label={
+              isExpanded ? `Collapse ${row.name}` : `Expand ${row.name}`
+            }
             onClick={() => {
               if (expandable) onToggle(row.id);
             }}

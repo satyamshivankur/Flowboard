@@ -168,7 +168,16 @@ const LAYER_RULES = {
 }
 
 export default defineConfig([
-  globalIgnores(['dist', 'coverage', 'storybook-static', 'node_modules']),
+  globalIgnores([
+    'dist',
+    'coverage',
+    'storybook-static',
+    'node_modules',
+    'playwright-report',
+    'test-results',
+    'blob-report',
+    'playwright/.cache',
+  ]),
 
   {
     files: ['**/*.{ts,tsx}'],
@@ -190,7 +199,11 @@ export default defineConfig([
     },
     settings: {
       'import-x/resolver': {
-        typescript: { project: ['./tsconfig.app.json'] },
+        typescript: {
+          /* Two projects: the app, and the Playwright harness in e2e/. */
+          project: ['./tsconfig.app.json', './tsconfig.e2e.json'],
+          noWarnOnMultipleProjects: true,
+        },
       },
     },
     rules: {
@@ -342,6 +355,11 @@ export default defineConfig([
       'src/**/*.{test,spec}.{ts,tsx}',
       'src/test/**/*.{ts,tsx}',
       '**/*.stories.{ts,tsx}',
+      /*
+       * Playwright specs need `!` on boundingBox() results and the layer zones
+       * do not apply to a test harness that drives the app from outside.
+       */
+      'e2e/**/*.ts',
     ],
     rules: {
       'import-x/no-restricted-paths': 'off',

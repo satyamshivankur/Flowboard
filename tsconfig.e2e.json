@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+
+    /*
+     * Deliberately no "vitest/globals": Playwright's `expect` and Vitest's
+     * must not meet in one project. e2e code imports `expect` explicitly.
+     */
+    "types": ["node", "@playwright/test"],
+    "skipLibCheck": true,
+
+    /*
+     * Bundler resolution, matching tsconfig.app.json rather than
+     * tsconfig.node.json. Playwright transpiles spec files with its own
+     * loader, so extensionless and alias imports resolve at runtime;
+     * "nodenext" here would demand explicit `.ts` extensions that the loader
+     * does not need.
+     */
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Matches tsconfig.app.json so e2e helpers can import @/model/*. */
+    "paths": { "@/*": ["./src/*"] },
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}
