@@ -287,6 +287,10 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 8.2. The app chrome SHALL include an obvious user switcher showing the current user's avatar, name and role.
 
+8.2.1. Each row of the switcher's menu SHALL show the same three things — avatar, name and role — in the same arrangement the trigger uses, rather than as a single line of text. The menu is where the demo of 8.14 is actually driven from, so it is where a user picks who to be; collapsing the role into the name as `"Bob Mensah · Member"` makes the role read as part of the name and gives the one control the brief singles out less information than the assignee picker beside it.
+
+8.2.2. The current user's row SHALL be marked through the menu's own selected state, so the mark reaches the accessible name. A decorative check rendered `aria-hidden` SHALL NOT be the only indication: it tells a screen-reader user nothing about which identity is active, which is the single fact this control exists to convey. The mark SHALL also sit where every other selectable menu in the app places it, rather than leading the row.
+
 8.3. WHEN the current user is switched, THEN the sidebar tree, board, list view and any open drawer SHALL immediately re-evaluate against the new user, with no page reload.
 
 8.4. Grants SHALL attach to containers as `{ resourceId, userId, mode: 'allow' | 'deny' }`.
@@ -540,6 +544,14 @@ The main axis SHALL NOT be shifted because doing so detaches the overlay from th
 14.7. Pending mutations SHALL be reflected at the point of interaction — a spinner inside the triggering button, or a subdued state on the affected row or card — rather than by a global overlay.
 
 14.8. Interactive elements SHALL have visible hover, focus-visible, active and disabled states. Focus rings SHALL be present on all keyboard-reachable controls and SHALL NOT be removed.
+
+14.8.1. A focus ring SHALL also be _unclipped_. The project's indicator is an `outline` with an offset, so it paints outside its element's border box, and a scrolling ancestor clips to its padding box — an outline cannot escape an overflow clip any more than a `z-index` can. Any scroll container SHALL therefore carry padding of at least the ring reach — outline width plus offset — of the focusables inside it. Present-but-clipped is a failure of this requirement, not a cosmetic issue: it is the same ring, half drawn.
+
+14.8.2. Such a container SHALL also set `scroll-padding` to at least that reach. Padding alone covers a control already in view; when the browser scrolls a focused control into view itself it aligns flush to the clip edge, so the ring is clipped again at the one moment it is being used.
+
+14.8.3. WHERE a container declares overflow on one axis only, both axes SHALL be treated as clipping. CSS computes a `visible` axis to `auto` when the other axis is not `visible`, so `overflow-y: auto` clips horizontally too.
+
+14.8.4. This relationship SHALL be verified in a real browser and asserted as an invariant — clearance at least the measured reach — rather than against a literal value, so changing either side keeps the check meaningful. It cannot be verified in jsdom, which loads no CSS and lays nothing out, so neither the computed outline nor the geometry exists there.
 
 14.9. Destructive actions (archive container, delete task) SHALL require confirmation through the `ConfirmContext` dialog, naming the target and its cascade consequences.
 

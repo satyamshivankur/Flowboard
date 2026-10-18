@@ -213,7 +213,28 @@ function KanbanColumnImpl({
       <div
         ref={ref}
         className={cn(
-          "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg p-0.5",
+          "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg",
+          /*
+           * `p-1` is not spacing, it is clearance for the cards' focus ring,
+           * and the two numbers have to agree.
+           *
+           * A card's focus indicator is `outline-2 outline-offset-2`, so it
+           * paints 4px *outside* the card's box — and this element scrolls,
+           * which clips to its padding box. At the `p-0.5` this had, half the
+           * ring was shaved off on every side of a focused card. An outline
+           * cannot escape an overflow clip any more than a `z-index` can,
+           * which is the same lesson `Tooltip` is portalled for.
+           *
+           * `scroll-p-1` is the other half. Without it the browser scrolls a
+           * focused card flush against the clip edge when tabbing down a long
+           * column, and the ring is clipped again at the one moment it matters
+           * (Requirement 14.8, 17.1).
+           *
+           * Note `overflow-y-auto` alone is what clips horizontally too: CSS
+           * computes the `visible` axis to `auto` when the other is not
+           * `visible`, so this box clips on both.
+           */
+          "p-1 scroll-p-1",
           "transition-colors motion-reduce:transition-none",
           /*
            * Highlighting the column, not just the insertion point, is what

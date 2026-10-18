@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { Menu } from "@/components/ui/Menu";
@@ -77,10 +77,51 @@ export function UserSwitcher() {
           />
         </button>
       }
+      /*
+       * Each row renders the same three things the trigger does — avatar, name,
+       * role — rather than one line of text. Switching user *is* the permission
+       * demo, so the menu is where someone picks who to be, and "Bob Mensah ·
+       * Member" as a flat string made the role read as part of the name
+       * (Requirement 8.2, 8.14).
+       *
+       * `label` stays the full "name · role" string: `content` is what the item
+       * looks like, `label` is what it is called, and `Menu` keeps them
+       * separate so a graphical row is still announced (Requirement 17.1).
+       */
       items={members.map((member) => ({
         id: member.id,
         label: `${member.name} · ${member.roleLabel}`,
-        icon: member.isCurrent ? Check : undefined,
+        /*
+         * `selected`, not an `icon: Check`.
+         *
+         * The icon form put the tick on the *left*, where every other menu in
+         * the app — status, priority, assignees — puts it on the right, and it
+         * is rendered `aria-hidden`, so a screen-reader user was given no way
+         * at all to tell which user they are currently acting as. `selected`
+         * appends ", selected" to the accessible name and renders the check
+         * where the rest of the app does.
+         */
+        selected: member.isCurrent,
+        content: (
+          <span className="flex min-w-0 items-center gap-2">
+            <Avatar
+              name={member.name}
+              avatarToken={member.avatarToken}
+              size="sm"
+            />
+
+            {/* Two lines, mirroring the trigger, so the role is visibly a
+                property of the user rather than more of their name. */}
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-sm font-medium leading-tight text-ink-900">
+                {member.name}
+              </span>
+              <span className="truncate text-xs leading-tight text-ink-400">
+                {member.roleLabel}
+              </span>
+            </span>
+          </span>
+        ),
         onSelect: () => {
           switchUser(member.id);
         },

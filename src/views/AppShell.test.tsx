@@ -68,9 +68,9 @@ describe("first load", () => {
     renderShell();
 
     await waitFor(() => {
-      expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent(
-        "Backlog",
-      );
+      expect(
+        screen.getByRole("navigation", { name: "Breadcrumb" }),
+      ).toHaveTextContent("Backlog");
     });
   });
 
@@ -185,6 +185,83 @@ describe("switching user changes what is visible", () => {
       ).toHaveTextContent("Member");
     });
   });
+
+  /*
+   * The menu is where the permission demo is driven from, so each row shows
+   * the same three things the trigger does rather than one line of text
+   * (Requirement 8.2, 8.14).
+   */
+  it("renders each switcher row with an avatar, a name and a role", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+
+    await user.click(
+      await screen.findByRole("button", { name: /switch user/i }),
+    );
+
+    const menu = await screen.findByRole("menu");
+
+    for (const [name, role] of [
+      ["Alice Nguyen", "Admin"],
+      ["Bob Mensah", "Member"],
+      ["Carol Diaz", "Member"],
+    ]) {
+      const item = within(menu).getByRole("menuitem", {
+        name: new RegExp(name ?? ""),
+      });
+
+      // The avatar is a labelled `role="img"`, so this distinguishes "the
+      // avatar rendered" from "the initials appear somewhere as text".
+      expect(
+        within(item).getByRole("img", { name: name ?? "" }),
+      ).toBeInTheDocument();
+      expect(item).toHaveTextContent(name ?? "");
+      expect(item).toHaveTextContent(role ?? "");
+    }
+  });
+
+  /*
+   * The current user was marked with a left-hand `icon: Check`, which is
+   * rendered `aria-hidden` — so a screen-reader user had no way at all to tell
+   * who they were acting as. `selected` puts it in the accessible name and
+   * moves the tick to where every other menu in the app puts it.
+   */
+  it("marks the current user as selected, in the accessible name", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+
+    await user.click(
+      await screen.findByRole("button", { name: /switch user/i }),
+    );
+
+    const menu = await screen.findByRole("menu");
+
+    expect(
+      within(menu).getByRole("menuitem", { name: /Alice Nguyen.*selected/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).queryByRole("menuitem", { name: /Bob Mensah.*selected/ }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      within(menu).getByRole("menuitem", { name: /Bob Mensah/ }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /switch user/i }));
+
+    const reopened = await screen.findByRole("menu");
+
+    expect(
+      within(reopened).getByRole("menuitem", { name: /Bob Mensah.*selected/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(reopened).queryByRole("menuitem", {
+        name: /Alice Nguyen.*selected/,
+      }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("recovering from a denied selection", () => {
@@ -241,9 +318,7 @@ describe("structural actions are permission-gated in the UI", () => {
     await user.click(screen.getByRole("menuitem", { name: /Bob Mensah/ }));
     await expandAll(user);
 
-    const engineering = within(tree())
-      .getByText("Engineering")
-      .closest("li");
+    const engineering = within(tree()).getByText("Engineering").closest("li");
 
     expect(engineering).not.toBeNull();
 
@@ -267,7 +342,9 @@ describe("view switching", () => {
     renderShell();
 
     await waitFor(() => {
-      expect(screen.getByRole("radiogroup", { name: "View" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("radiogroup", { name: "View" }),
+      ).toBeInTheDocument();
     });
 
     const group = screen.getByRole("radiogroup", { name: "View" });

@@ -316,6 +316,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - `lg`: full row with breadcrumbs, `ViewSwitcher`, search, `DevPanel`, `UserSwitcher`
   - _Requirements: 13.7, 16.4, 20.4_
 - [x] 12.3 `UserSwitcher`
+  - **Menu rows rebuilt in task 44.** They shipped here as `"${name} · ${roleLabel}"` text with a leading check; they now carry avatar, name and role in the trigger's own arrangement
   - Avatar, name and role for the current user; switching re-evaluates the tree, board, table and drawer with no reload
   - _Requirements: 8.2, 8.3, 8.14_
 - [x] 12.4 `DevPanel`
@@ -1256,3 +1257,65 @@ once a column stopped being a plain surface.
   - Verified in a browser at 1440px on Sprint 14, the only seeded list with all four statuses, and at 320px. The grey/blue/violet/green reading was the point and is not something jsdom can confirm
   - One thing noticed and deliberately not fixed: at a 320px viewport the column overflows the screen, because `w-column-mobile` is `22rem` flat while design.md describes `min(88vw, 22rem)`. Pre-existing, unrelated to the tint, and a change to the paging geometry rather than to colour
   - _Requirements: 4.2.1, 17.7, 20.14_
+
+---
+
+## Phase 21 — The switcher's menu looks like the control it is
+
+`UserSwitcher`'s trigger showed avatar, name and role from the start. Its menu
+— the thing you actually pick an identity from — showed `"Bob Mensah · Member"`
+as one line of text with a tick on the left. So the control the brief singles
+out twice presented less than the assignee picker two inches away, and the
+role read as part of the name.
+
+- [x] 44. Render the switcher's rows with avatar, name and role
+- [x] 44.1 Move the row to `MenuItemSpec.content`
+  - Avatar plus a two-line name/role block, mirroring the trigger — so the role is visibly a property of the user rather than more of their name (8.2.1)
+  - `label` stays the full `"name · role"` string. `content` is what the item looks like, `label` is what it is called, and `Menu` already keeps them separate so a graphical row is still announced (17.1). Nothing new was needed in the primitive — `content` and `selected` were both already there, used by the drawer's assignee picker and by `StatusPicker`
+  - Every existing test matches these rows by a name substring, so none needed changing
+  - _Requirements: 8.2.1, 13.6, 17.1_
+- [x] 44.2 Mark the current user with `selected`, not a leading icon
+  - It was `icon: member.isCurrent ? Check : undefined`. `Menu` renders an item's icon `aria-hidden`, so a screen-reader user was told nothing about which identity was active — the one fact this control exists to convey
+  - `selected` appends ", selected" to the accessible name and puts the check on the right, where `StatusPicker`, `PriorityPicker` and the assignee menu all put it. The left-hand tick was also the only such mark in the app
+  - Same class of defect as task 39.2 on this component, and from the same direction: the visual read was fine and the accessible name was not
+  - _Requirements: 8.2.2, 17.1_
+- [x] 44.3 Test and look
+  - `AppShell.test.tsx`: each row carries a labelled `role="img"` avatar plus the name and the role as text — the avatar asserted by role rather than by its initials appearing somewhere, which would also pass for plain text; and the selected mark moves to whoever is current, asserted through the accessible name in both directions
+  - Checked in a browser at 1440px, which is the only way to confirm the two-line row sits correctly beside the avatar and the check
+  - _Requirements: 8.2.1, 8.2.2, 18.7_
+
+---
+
+## Phase 22 — A focus ring that is drawn is not the same as one you can see
+
+A card's focus outline was shaved off on all four sides inside a kanban
+column. Neither component was wrong on its own, which is what made it a
+reported bug rather than a review catch: the indicator is correct, the scroll
+container's padding is reasonable spacing, and the defect is the arithmetic
+between them.
+
+- [x] 45. Give the column's card list room for its cards' focus ring
+- [x] 45.1 Measure it before changing anything
+  - `outline-2 outline-offset-2` paints 4px outside the card's border box; the scroll container had `p-0.5`, which is 2px. So exactly half the ring went under the clip on every side
+  - An outline cannot escape an overflow clip any more than a `z-index` can — the same lesson `Tooltip` was portalled for in Phase 4, in a second guise
+  - Confirmed in a browser with computed styles and rects rather than inferred from the class list, which is also what turned up the next item
+  - _Requirements: 14.8.1_
+- [x] 45.2 `p-1 scroll-p-1`, and both halves are needed
+  - `p-1` is 4px — exactly the reach. It is clearance, not spacing, and the comment says so, because the next person to tune it for looks needs to know what it is holding up
+  - `scroll-p-1` covers the case padding cannot: tabbing down a column long enough to scroll makes the browser bring the next card into view itself, aligned flush to the clip edge. Measured at `0px` of clearance without it — so the ring was clipped at the one moment it is actually being used
+  - **Both axes clip, which the class list does not say.** The container declares `overflow-y-auto` only, and CSS computes a `visible` axis to `auto` when the other is not `visible`. The left and right clearance matter as much as the top and bottom
+  - _Requirements: 14.8.1, 14.8.2, 14.8.3_
+- [x] 45.3 Reject the inset-ring alternative
+  - `focus-visible:ring-2 ring-inset` would also have worked and was not taken: `Card` already uses `ring` for its border and its `selected` state, so three ring utilities would collide in tailwind-merge, and it would make the board card the one control in the app with a focus treatment of its own
+  - The indicator is right. It needed room
+  - _Requirements: 13.6, 14.8_
+- [x] 45.4 Sweep every other scroll container
+  - The column was the only one short. The sidebar's tree scroller has `px-2 py-2`, the board's horizontal scroller `p-3`, the palette `p-2`, the drawer's `ScrollShadow` `px-4 py-4` — all clear of the same 4px
+  - Held as an assertion rather than a note, since any of them could be tightened later for spacing by someone with no idea it is load-bearing
+  - _Requirements: 14.8.1_
+- [x] 45.5 Test it where it can be tested
+  - **Not in jsdom.** This needs `outline-width`, `outline-offset` and `padding` as computed values plus real geometry; jsdom loads no CSS and lays nothing out, so every rect is zero. `e2e/focus-ring.spec.ts`, with the drag specs, for the same reason they are there
+  - Four tests: the first card's ring clears its column on every side; the container clips on both axes; a card scrolled into view keeps its clearance; and a sweep of every scroll container in the booted app
+  - Asserted against the **measured** reach rather than the literal `4px`, so changing either value on either side keeps the test meaningful instead of needing an edit
+  - Verified by reverting the fix: the three geometry assertions failed at 2px, 0px and 254 short control/area pairs. A regression test nobody has seen fail is a regression test nobody has tested
+  - _Requirements: 14.8.1, 14.8.2, 14.8.3, 14.8.4_
