@@ -95,6 +95,16 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 2.12. WHEN a parent task is deleted, THEN its subtasks SHALL also be deleted, and the confirmation prompt SHALL state how many subtasks will be removed.
 
+2.13. A subtask SHALL accept the same field mutations as a top-level task — title, status, priority, due date, assignees, complete and delete — and SHALL refuse exactly three, each for a structural reason rather than a policy one:
+
+| Refused on a subtask    | Why                                                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Move to another list    | A subtask must stay in its parent's list (2.7), so `moveToList` SHALL reject it and say to move the parent instead                                    |
+| Reorder within a column | Column position is computed over top-level tasks only, so a subtask has no column index for a reorder to target                                       |
+| Duplicate               | Permitted by the Model, but the copy's position would be derived from that same top-level ordering. Not offered, rather than offered and subtly wrong |
+
+Any surface that edits a subtask SHALL omit these three rather than render them and let the Controller refuse, since a control whose only outcome is a guaranteed error is worse than no control.
+
 ---
 
 ## Requirement 3 — Per-list status configuration
@@ -127,7 +137,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 4.2. Each column header SHALL show the status color indicator, status name, task count and an "add task" affordance.
 
-4.3. Each task card SHALL show title, priority indicator, assignee avatars, due date, and a subtask count when the task has subtasks.
+4.3. Each task card SHALL show title, priority indicator, assignee avatars, due date, and a subtask count when the task has subtasks. WHERE the task has subtasks, that count SHALL itself be the disclosure control of 4.13 rather than an inert badge — the same element reporting progress and offering the way in, instead of a number that names something the card gives no route to.
 
 4.4. WHEN a card is dragged to a different column and dropped, THEN the task's `status` SHALL be updated and its `position` set from the drop index.
 
@@ -146,6 +156,14 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 4.11. Drag and drop SHALL be operable from the keyboard via dnd-kit's keyboard sensor, with an accessible announcement of pick-up, move and drop events. The key that begins and ends a keyboard drag SHALL NOT also be the key that opens the task drawer, so that one key never carries two meanings on a card.
 
 4.12. WHERE the drag-and-drop library previews a cross-column move by reordering DOM nodes itself, the application SHALL mirror that move into React state as it happens, so that React remains the only writer of the elements it rendered. A library-owned DOM move that React does not know about leaves React removing a child from a parent it no longer belongs to, which throws and takes the board down; and a preview the application does not record leaves it with no destination to commit, which is how a drop into an empty column can silently do nothing. Either the application owns the preview, or the library does — never both.
+
+4.13. A card with subtasks SHALL reveal them nested beneath itself on disclosure, and each revealed subtask SHALL carry the same editing controls as its parent card, subject to the three omissions in 2.13. Viewing or changing a subtask SHALL NOT require opening the drawer. The board previously showed a count and nothing else, which named a thing it gave no route to and left the drawer as the only way to see or change a subtask — while the list view had nested and edited them in place all along (5.7). The two surfaces SHALL agree.
+
+4.13.1. Expansion state SHALL be held by the board rather than by each card, so that it survives a card unmounting and remounting when a drag moves it between columns.
+
+4.13.2. A revealed subtask SHALL NOT be independently draggable, and dragging a parent SHALL carry its revealed subtasks with it — matching the Model, where a subtask follows its parent between lists (2.7). The floating drag clone SHALL omit subtasks: it is a thing being dragged, not a thing being read.
+
+4.13.3. Any lookup that resolves a task id to a card for a mutation SHALL search subtasks as well as top-level cards. A lookup over top-level cards alone returns nothing for a subtask id, and a caller that bails on "not found" then fails silently — which is precisely how assigning a member to a subtask, or deleting one, did nothing at all.
 
 ---
 
@@ -167,7 +185,9 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 5.6. The table header SHALL remain visible while the task rows scroll.
 
-5.7. Subtasks SHALL be rendered nested under their parent row with a disclosure control, and SHALL be excluded from the top level of the table.
+5.7. Subtasks SHALL be rendered nested under their parent row with a disclosure control, and SHALL be excluded from the top level of the table. Each nested row SHALL carry the same inline controls as a top-level row, subject to the three omissions in 2.13. The kanban board SHALL offer the equivalent (4.13); pagination SHALL count top-level rows only, since a subtask is not a row of its own.
+
+5.7.1. The phone form of the list view SHALL nest subtasks beneath their parent card **without** a disclosure, because a stacked card already reads as a group and a chevron on a phone buys a tap to hide two rows. The three surfaces therefore disclose differently on purpose — table and board behind a control, phone cards always open — while offering the same controls once revealed.
 
 5.8. Status and priority in list rows SHALL use the same tokens and visual language as the kanban cards.
 
@@ -458,6 +478,8 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 15.2. Each card SHALL expose a hover/focus overflow menu with quick actions: open details, change status, change priority, assign, set due date, move to list, duplicate, delete.
 
+15.2.1. A revealed subtask's card SHALL expose the same menu minus move-to-list, move up/down and duplicate, per 2.13, and its delete entry SHALL read "Delete subtask" so the target is unambiguous when a parent and a child are both on screen.
+
 15.3. Quick actions SHALL apply directly from the card without opening the drawer, and SHALL respect the same permission checks as the drawer.
 
 15.4. Clicking a card body SHALL open the task drawer. Clicking an interactive element inside the card SHALL NOT also open the drawer.
@@ -473,6 +495,8 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 15.9. Card titles SHALL clamp to two lines with the full title available on hover via tooltip.
 
 15.10. Card interactions SHALL have no hover-only paths to functionality: every quick action SHALL also be available from the drawer.
+
+15.10.1. For a subtask the drawer route is the subtask's **own** drawer, reached from its "Open details" entry or by clicking its card. The parent drawer's subtask section is deliberately narrower — create, toggle, open, delete — because a second full field set nested inside a drawer would be a drawer inside a drawer. The guarantee in 15.10 is therefore satisfied by a subtask being openable as a task in its own right, not by duplicating its fields into its parent's panel.
 
 ---
 

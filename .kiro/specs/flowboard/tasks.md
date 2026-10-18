@@ -369,6 +369,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 4.2_
 - [x] 14.3 `TaskCard`
   - Title (2-line clamp + tooltip), priority indicator, assignee avatars, due date, subtask count
+  - **The count became the disclosure in task 28.** It shipped here as an inert chip with a tooltip, which named a thing the card gave no route to
   - _Requirements: 4.3, 15.9, 16.6_
 - [x] 14.4 Card interactions
   - Hover elevation; reveal of secondary affordances via `can-hover:group-hover` and `can-hover:group-focus-within`, so coarse pointers get them persistently visible instead of unreachable
@@ -376,6 +377,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - _Requirements: 15.1, 15.4, 15.7, 20.9, 20.10_
 - [x] 14.5 Card overflow quick-action menu
   - Open, change status, change priority, assign, set due date, move to list, duplicate, delete — all applied inline, all permission-checked, all also present in the drawer
+  - Task 28 added a second form of this menu for subtask cards, minus the three entries the Controller refuses on a subtask (2.13, 15.2.1)
   - _Requirements: 15.2, 15.3, 15.10_
 - [x] 14.6 Card keyboard operability
   - Focusable, Enter opens, overflow menu reachable without a pointer
@@ -443,6 +445,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
 - [x] 15.3 Row click opens the task drawer
   - _Requirements: 5.5_
 - [x] 15.4 Nested subtask rows with a disclosure control, excluded from the top level
+  - This was the richest subtask-editing surface in the app for a long time, and the board's lack of an equivalent is what task 28 fixed. The pattern here — nest, disclose, give the child the parent's controls — is the one the board now mirrors
   - _Requirements: 5.7_
 - [x] 15.5 Shared status and priority tokens with the board
   - _Requirements: 5.8, 13.6_
@@ -479,6 +482,7 @@ Pin exact resolved versions in `package.json` after each install step rather tha
   - A successful move whose `statusRemapped` flag is set pushes an info toast explaining that the destination list had no matching status
   - _Requirements: 2.6, 7.9_
 - [x] 16.8 `SubtaskList` — create, toggle, open, delete, depth-1 enforced
+  - Deliberately narrower than the board's subtask cards (task 28) and the table's nested rows. Full field editing for a subtask is its _own_ drawer, reached from `onOpen`; nesting a second complete field set inside a drawer would be a drawer inside a drawer (15.10.1)
   - _Requirements: 2.11, 2.12_
 - [x] 16.9 Read-only drawer state when the user lacks `task:update`, with an explanatory note
   - _Requirements: 7.10, 8.12_
@@ -789,3 +793,53 @@ removed because what they cost exceeded what they bought.
   - `Controls.stories.tsx` still shows a Comfortable/Compact `SegmentedControl`, driven by local `useState` rather than the context. Left as-is — it documents the primitive, not a shipped feature
   - Corrected two doc comments in `Responsive.stories.tsx` that described the sidebar as resizable, and `uiStorage.ts`'s header, which listed "sidebar width" among the preferences it carries
   - _Requirements: 18.1, 21.22_
+
+---
+
+## Phase 12 — Subtasks on the board
+
+The board showed a subtask count and nothing else, so the drawer was the only
+way to see or change a subtask — while the list view's table had nested and
+edited them in place since Phase 6. This closes that gap.
+
+- [x] 28. Make a board card disclose and edit its subtasks
+- [x] 28.1 Carry subtasks in the board view model
+  - `TaskCardViewModel` gained `subtasks: readonly TaskCardViewModel[]`, built recursively in `buildTaskCard`
+  - `subtaskCount` and `completedSubtaskCount` are now **derived from that array** rather than re-computed from `statuses`. The badge and the rows it summarises read the same `isComplete` the child card renders, so "1 of 2" cannot disagree with the ticks beneath it
+  - Recursion terminates on its own — the Model caps nesting at `MAX_TASK_DEPTH`, so `subtasksOf` returns nothing one level down. An explicit depth guard is kept anyway: raising that cap should deepen the tree deliberately, not hand it an unbounded one and blow the stack on a malformed parent chain
+  - _Requirements: 4.13, 21.9_
+- [x] 28.2 Split `TaskCard` into wrapper, handle and body
+  - The **wrapper** is the sortable element, with expanded subtasks inside it, so dragging a parent takes its visible children along — the invariant the Model already enforces across lists (2.7)
+  - The parent **card** is the drag _handle_ via `handleRef`. Without that split, pressing a subtask would start dragging its parent, and the accessibility plugin — which labels `draggable.handle ?? draggable.element` — would put `tabindex` and `aria-roledescription` on a wrapper that is not the thing a user picks up
+  - **`TaskCardBody`** is one card's presentation and editing, shared by parent and subtasks: literally one control set rather than two that drift
+  - Subtask bodies take no sortable ref, so they carry their own `role="button"` and `tabIndex` to stay keyboard-reachable and Enter-openable
+  - _Requirements: 4.13, 4.13.2, 15.5, 17.1_
+- [x] 28.3 Make the count the disclosure
+  - The same chip, now a button with `aria-expanded` and the label the table already uses — `"Expand subtasks of X"` — so the phrase is one phrase across both surfaces. No new element, and the progress reading stays visible whether the children are open or shut
+  - A coarse-pointer minimum height, since a 1rem chip is not tappable and the board is touch-first (20.9)
+  - A subtask renders the inert form of the chip, because a subtask cannot itself have children
+  - _Requirements: 4.3, 4.13, 20.9_
+- [x] 28.4 Narrow the subtask menu to what the Controller allows
+  - Omitted: move-to-list (`moveToList` rejects a subtask outright — "Move the parent task instead"), move up/down (`move` computes position over `columnTasks`, which filters to `parentTaskId === null`, so a subtask has no column index), and duplicate (valid, but the copy's position would derive from that same top-level ordering)
+  - Kept: rename, status, priority, due date, assignees, complete, delete. The delete entry reads "Delete subtask", so the target is unambiguous when a parent and a child are both on screen
+  - A control whose only outcome is a guaranteed error is worse than no control, which is why these are omitted rather than rendered and refused
+  - _Requirements: 2.13, 15.2.1_
+- [x] 28.5 Hold expansion on the board and thread it down
+  - `expandedIds` plus `toggleExpand` on `KanbanBoard`, passed through `KanbanColumn` to each card — the same arrangement `TaskListView` uses for its table rows
+  - Board-level rather than per-card because a card unmounts and remounts when a drag moves it between columns; local state would collapse the group under the user's pointer
+  - `TaskCard`'s `isPending` changed from a boolean to a predicate, matching `TaskTable`'s prop exactly, so a subtask dims without subduing its parent
+  - _Requirements: 4.13.1, 14.7_
+- [x] 28.6 Fix the lookups that could not resolve a subtask id
+  - `handleToggleAssignee` and `handleDelete` used `columns.flatMap(c => c.tasks).find(...)`. `selectBoardColumns` filters subtasks out of `column.tasks`, so that returned `undefined` for every subtask id — and both callers bail on `undefined`. Assigning a member to a subtask, or deleting one, would have silently done nothing
+  - Replaced with a `findCard` helper that searches children too. The announcements name map had the same blind spot
+  - **Latent rather than introduced**: the lookups were already wrong for any subtask id, there was simply no way to pass one in before this task
+  - _Requirements: 4.13.3_
+- [x] 28.7 Test and verify
+  - One jsdom test mirroring the list view's existing disclosure test: the reveal, control parity with the parent, the three omitted menu entries, and that an edit on a subtask writes to the subtask rather than the parent
+  - `overlayCard()` in `views.test.tsx` assumed the overlay's first child is the card. It is now the sortable wrapper, so it queries by label instead — which is what the assertion actually meant
+  - Browser-verified, since the drag half is not reachable from jsdom: both seeded subtasks reveal under their parent; ticking one moved the badge `1/2 → 2/2`; a priority change landed on the subtask; the subtask menu omitted exactly the three actions and read "Delete subtask"; subtasks were not independently draggable; the clone carried none; and dragging the parent to another column took its expanded children along
+  - _Requirements: 4.13, 4.13.2, 18.7_
+- [ ] 28.8 Collapse the duplicated nesting in the list view's row model
+  - `TaskRowViewModel.subtasks` now sits alongside the new `task.subtasks`, so that path carries the nesting twice. The two types are not identical — `TaskRowViewModel` adds per-row status display fields — and the list view works, so this is redundancy rather than a bug
+  - Left open deliberately: collapsing it means touching a working surface the request did not cover. Named here rather than discovered later
+  - _Requirements: 21.17_
