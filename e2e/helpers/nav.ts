@@ -110,3 +110,44 @@ export function taskCard(scope: Locator, title: string): Locator {
 export function breadcrumb(page: Page): Locator {
   return page.getByRole("navigation", { name: "Breadcrumb" });
 }
+
+/**
+ * A toast, by its title or description text.
+ *
+ * Every toast is in the DOM twice: once rendered visually, and once more
+ * inside `ToastHost`'s `aria-live` region as "{title}. {description}". So a
+ * bare `getByText` always trips strict mode, and `exact` alone does not save
+ * it — a toast with no description has a live-region string identical to its
+ * title. Hence `first()`: both nodes say the same thing, and the first is the
+ * visible one.
+ *
+ * Factored out after getting this wrong in three separate specs.
+ */
+export function toast(page: Page, text: string): Locator {
+  return page.getByText(text, { exact: true }).first();
+}
+
+/**
+ * The visible tree as `"{level}:{name}"` strings, in render order.
+ *
+ * Depth is carried as `aria-level`, so including it is what lets a reparent be
+ * told apart from a reorder — the row name alone cannot.
+ *
+ * `button[title]` picks the row's own label button: `TreeItem` sets
+ * `title={row.name}`, while the chevron and the actions menu carry only
+ * `aria-label`. That also sidesteps accessible names that are not the bare
+ * name, like Marketing's "Marketing Restricted access".
+ */
+export async function treeRows(page: Page): Promise<string[]> {
+  const tree = await openTree(page);
+
+  return tree.locator('[role="treeitem"]').evaluateAll((items) =>
+    items.map((item) => {
+      const level = item.getAttribute("aria-level") ?? "?";
+      const name =
+        item.querySelector("button[title]")?.getAttribute("title") ?? "";
+
+      return `${level}:${name}`;
+    }),
+  );
+}

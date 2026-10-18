@@ -1,8 +1,8 @@
-import { type Locator, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 import { columnOrder, dragTo } from "./helpers/drag";
-import { breadcrumb, column, taskCard } from "./helpers/nav";
+import { breadcrumb, column, taskCard, toast } from "./helpers/nav";
 
 /**
  * Optimistic rollback, after a real drag.
@@ -28,17 +28,6 @@ async function armFailure(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Simulation settings" }).click();
   await page.getByRole("menuitem", { name: "Fail next operation" }).click();
   await expect(toast(page, "Armed")).toBeVisible();
-}
-
-/**
- * A toast by its title.
- *
- * `exact` throughout this file for the same reason: `ToastHost` renders the
- * title and then repeats it inside its `aria-live` region as
- * "{title}. {description}", so every loose text match finds two nodes.
- */
-function toast(page: Page, title: string): Locator {
-  return page.getByText(title, { exact: true });
 }
 
 /** Drags the last To-do card onto the first In-progress card. */
