@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import type { ContainerType } from "@/config/containers";
+import type { ContainerAccess } from "@/model/access";
 import type { Result } from "@/model/result";
 import type { Container } from "@/model/types";
 
@@ -13,11 +14,15 @@ export interface ContainerActionsViewModel {
     parentId: string,
     type: ContainerType,
     name: string,
-    visibility?: Container["visibility"],
+    access?: ContainerAccess,
   ) => Promise<Result<Container>>;
   readonly rename: (
     containerId: string,
     name: string,
+  ) => Promise<Result<Container>>;
+  readonly setAccess: (
+    containerId: string,
+    access: ContainerAccess,
   ) => Promise<Result<Container>>;
   readonly archive: (
     containerId: string,
@@ -53,13 +58,13 @@ export function useContainerActions(): ContainerActionsViewModel {
       parentId: string,
       type: ContainerType,
       name: string,
-      visibility?: Container["visibility"],
+      access?: ContainerAccess,
     ) =>
       actions.create(scope, {
         parentId,
         type,
         name,
-        ...(visibility === undefined ? {} : { visibility }),
+        ...(access === undefined ? {} : { access }),
       }),
     [actions, scope],
   );
@@ -67,6 +72,12 @@ export function useContainerActions(): ContainerActionsViewModel {
   const rename = useCallback(
     (containerId: string, name: string) =>
       actions.rename(scope, containerId, name),
+    [actions, scope],
+  );
+
+  const setAccess = useCallback(
+    (containerId: string, access: ContainerAccess) =>
+      actions.setAccess(scope, containerId, access),
     [actions, scope],
   );
 
@@ -93,7 +104,7 @@ export function useContainerActions(): ContainerActionsViewModel {
   );
 
   return useMemo(
-    () => ({ create, rename, archive, unarchive, reorder, move }),
-    [create, rename, archive, unarchive, reorder, move],
+    () => ({ create, rename, setAccess, archive, unarchive, reorder, move }),
+    [create, rename, setAccess, archive, unarchive, reorder, move],
   );
 }

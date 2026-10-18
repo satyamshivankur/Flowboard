@@ -881,3 +881,102 @@ selected fine, and did nothing.
   - The third is the one that pins "same mutation". A follow-up write would satisfy the other two and fail only that one
   - `config.test.ts` asserts the template's names, that it covers every category exactly once in order, and that it matches `MIN_STATUSES_PER_LIST` — a constant that until now was exported and read by nothing
   - _Requirements: 18.5.1_
+
+---
+
+## Phase 14 — Access is decided, not defaulted
+
+`containerSlice.create` ended its `apply` with `visibility: input.visibility ?? "public"`, and no caller ever passed the argument — the parameter existed, was threaded through `useContainerActions`, and was dead. So every space, folder and list an admin created arrived visible to the entire workspace. "Who can see this" was a question the product never asked, and the answer was always "everyone".
+
+This phase makes it a decision taken at creation and revisable afterwards. The permission walk is untouched: `private` still resets visibility, the nearest grant still wins, admins still bypass. What changes is what data creation writes, and that there is finally a UI that writes grants at all — before this, `draft.grants` was assigned in exactly two places, both in `sessionSlice` (hydrate, reset-to-seed).
+
+- [x] 30. Translate between the stored shape and the decision
+- [x] 30.1 Write `src/model/access.ts`
+  - `ContainerAccess` is `{ visibility, memberIds }` — the question as a person asks it, against storage that is a `visibility` enum plus a flat `Grant[]`
+  - `accessForContainer` reads, `grantRowsForAccess` writes, and both read one `Record<Visibility, AccessRule>` table: `private` → `{ grantMode: "allow", grantMeansAccess: true }`, `public` → `{ grantMode: "deny", grantMeansAccess: false }`. One boolean drives the read (`flagged === grantMeansAccess`) and the write (`chosen === grantMeansAccess`), which is why the two cannot drift
+  - A `Record<Visibility, …>` rather than two ternaries, so a third visibility is a compile error at the declaration instead of a silent fall-through to the `public` branch (21.15)
+  - `memberIds` excludes any role holding `workspace:bypass`, read through the capability table rather than compared against `"admin"`. An admin's visibility does not come from this list, so a row for her would imply a control that does not exist
+  - `accessForContainer` fails closed for a missing or cross-workspace container, matching `canView`: a stale id must not resolve to something permissive
+  - `grantsExcluding` is narrowed twice — to this resource, and to user subjects. The first stops a dialog about one list rewriting the workspace's permissions; the second stops a future team grant being deleted by every access save
+  - `isUserSubject` is a `Record<GrantSubjectType, boolean>` lookup, not `=== "user"`. A comparison does the same job today and silently keeps team rows the moment the union widens; the lookup makes that widening a missing key and a compile error. It also reads an out-of-union value as `undefined` → preserved, which matters because the persisted payload is validated for shape and not for subject values
+  - **The exhaustive-`switch` form was tried first and was wrong.** `return exhaustive` returns the `never` binding's _runtime_ value, so a subject type outside the union came back as the truthy string `"team"` and the row was dropped — caught by the one test that constructs such a row
+  - _Requirements: 8.5.1, 8.15.2, 8.16.1, 21.7, 21.8, 21.15, 21.18_
+- [x] 30.2 Add `canReach` to the permission engine
+  - `canView` and tree reachability are not the same thing, and the gap is a consequence of nearest-grant-wins: an `allow` on a list overrides a denied ancestor **for that list**, so `canView(list)` is true while `selectVisibleTree` still stops at the ancestor and never builds it
+  - Nothing enforces with it — enforcement stays on `canView`, because a node someone holds an explicit grant on is a node they were deliberately given. It exists so the access dialog does not tell an admin that Bob has access to a list Bob cannot find
+  - _Requirements: 8.16.6_
+- [x] 30.3 Validate an access list
+  - `validateAccessMembers` — members of the scoped workspace, each at most once. Copied from `validateAssignees`, which solves the identical problem: an id that is not a member persists as a grant row matching nobody
+  - `validateGrantableType` — reads the registry's `grantable` flag, so the workspace refuses an access list rather than accepting grant rows the walk would then honour. **First consumer of that flag**, which had been declared since Phase 0 and read only by `config.test.ts`
+  - _Requirements: 8.15.3, 8.15.4, 21.4_
+- [x] 30.4 Add `container:share` to the capability table
+  - Its own capability rather than folded into `container:update`. Renaming a list and deciding who can see it are different powers, and the second is the one that can hand someone the contents of another person's space
+  - Four edits in `src/config/capabilities.ts` — the union, `ALL_CAPABILITIES`, `CAPABILITY_LABELS`, and nothing in `ROLE_CAPABILITIES` because `member` does not get it and `admin` holds it through bypass. That is the documented cost of the table, and this is the first capability added since Phase 0, so it is also the test of 21.7's claim
+  - _Requirements: 8.9, 8.9.1, 21.7_
+
+- [x] 31. Write access with the container, and let an admin change it
+- [x] 31.1 Replace the creation default
+  - `visibility: input.visibility ?? "public"` → `const access = input.access ?? defaultAccessFor(input.type)`. One line, and the whole behaviour change
+  - `defaultAccessFor` fails **closed** for a grantable type and stays open for one that is not — a level with no way to carry a grant has no way back from `private`, so locking it down would make it permanently invisible. Resolved from `grantable` rather than `type !== "workspace"`, same reasoning as `holdsTasks` over `type === "list"`
+  - `CreateContainerInput.visibility` became `access`. The old field was a dead parameter with a misleading name: it suggested visibility was the whole of the decision when half of it lives in grant rows
+  - The fallback is not the UI's path — the create form always sends an explicit value. It exists so a programmatic caller that forgets cannot publish a container to the workspace by omission
+  - _Requirements: 8.15, 8.15.2, 8.15.3, 21.4_
+- [x] 31.2 Write the grants in the same `apply`
+  - A `writeAccess` helper in the slice, called from `create` and from `setAccess`, so an access list chosen at creation and the same list chosen a minute later cannot produce different rows
+  - Same recipe as the container and its statuses. The failure a follow-up write would cause here is quieter than the missing-statuses one and worse: a container that exists, appears in the sidebar, works perfectly, and is visible to a set of people nobody chose. No error state, no empty state, no symptom until someone sees something they should not
+  - _Requirements: 1.4, 8.15.1, 9.5, 10.6_
+- [x] 31.3 Add `containerSlice.setAccess`
+  - Validates existence, grantability and the member list; authorizes `container:share`; writes `visibility` and the resource's grant rows in one `apply`
+  - Returns `Result<Container>` like `rename`. The grants are not in the result because no caller wants them — the dialog re-reads through the selector
+  - _Requirements: 8.16, 8.16.1, 9.5, 10.6_
+- [x] 31.4 Add the selectors and the view model
+  - `selectContainerAccess` is gated on `canView`: an access list is itself information about a resource, so it should not leak for one the caller cannot see
+  - `selectWorkspaceMemberships` pairs each user with the role they hold in the scoped workspace. `selectWorkspaceMembers` already returned the users, but the picker needs the role too, and resolving it per row in the View would be the View deciding permissions (8.12)
+  - `useContainerAccess(containerId)` for an existing container, `useAccessMembers(parentId)` for one that does not exist yet. Both share one `buildMembers`, so the list renders identically in either dialog
+  - `blockedByAncestor` is computed from `canReach` against the **parent**, so it is answerable before the container exists and is independent of the pending selection
+  - `TreeRowViewModel` gained `grantable` and `restricted`. The selector already carried the whole `Container`; the row model had dropped `visibility`
+  - _Requirements: 8.12, 8.16, 8.16.6_
+
+- [x] 32. Build the control
+- [x] 32.1 `AccessFields` — one control, used in both dialogs
+  - A mode above a member list, and the list always means "has access". Under "Selected people" a tick writes an `allow`; under "Everyone" the list starts full and unticking writes a `deny`
+  - The alternative — three-state allow/inherit/deny per member — exposes the storage model rather than the question, and an admin would have to know the ancestor walk to predict what "inherit" does
+  - Switching to "Everyone" ticks every governed member; switching back preserves the selection. The asymmetry is deliberate: under "Everyone" an unticked member is an explicit deny, so carrying a sparse selection into that mode would convert "not granted yet" into "actively blocked" without anyone asking
+  - A bypassing role's row is ticked, disabled and captioned "always has access". Hidden, it would read as "the admin has no access", which is the opposite of true
+  - A summary line states the consequence in words, including the notable case: "Only admins will be able to see this list"
+  - _Requirements: 8.16.3, 8.16.4, 8.16.5, 8.16.6, 20.9_
+- [x] 32.2 Put it in the create form
+  - `ContainerFormDialog`'s create mode now carries name + access, seeded from `defaultAccessFor` so the form opens restricted and the admin widens it deliberately. Shown only where the registry says the type is grantable
+  - **Removed the `sr-only` submit button** while here. It existed so Enter submits, and it put two controls named "Create" in the same dialog — audible to a screen reader, and ambiguous to a test. The footer button now carries `type="submit" form={id}`, which associates it with a form the Dialog renders it outside of, so Enter works with one control (17.1)
+  - _Requirements: 8.15, 17.1_
+- [x] 32.3 Add the manage-access dialog
+  - A third `access` mode on `ContainerFormRequest`, so the sidebar keeps one piece of dialog state and one mount point. `requestKey` became an exhaustive switch over the three
+  - Separate form component because it shares no field with create — the name is read-only context here — but it renders the identical `AccessFields`
+  - A local draft committed on save. Per-checkbox writes would make a half-made decision live, and would pay the simulated latency three times for one thought
+  - _Requirements: 8.16, 8.16.2_
+- [x] 32.4 Reach it from the tree, and show the state on the row
+  - "Manage access" in `TreeItem`'s context menu, rendered only where `row.grantable`, gated on `container:share` with its own `disabledReason` — kept separate from `canEditStructure` so the two capabilities stay distinguishable in the UI as well as in the table
+  - A lock icon and an `sr-only` "Restricted access" on a private row. Without it, restricted access is invisible until someone opens the dialog; with the text, the state is never icon-alone (17.7)
+  - _Requirements: 8.16, 8.16.7, 17.7_
+
+- [x] 33. Test it
+- [x] 33.1 `access.test.ts` — the round trip, not two mappings
+  - Every mode and selection saved and read back, asserted as a property. Two mappings asserted separately both pass while disagreeing with each other, which for a permissions mapping is the one failure that matters
+  - Plus: a bypassing role never appears in a list or a written row; `governedMemberIds` follows an injected capability table rather than the name `admin`; a grant on another resource or another subject type survives a save; `defaultAccessFor` is restricted for every grantable type and open for the one that is not
+  - The other-subject-type case is what caught 30.1's `return exhaustive` bug. It is the only test in the file that constructs data the type system says cannot exist, and it earned its cast
+  - _Requirements: 8.5.1, 8.15.2, 8.16.1, 18.5.2_
+- [x] 33.2 `containerSlice.test.ts` — the mutation
+  - A new container reaches admins only and writes **no** rows, because restricted means "nothing written" rather than "everyone denied"; a chosen member gets exactly one `allow`; "Everyone" minus someone writes exactly one `deny`; a non-member in the list is `VALIDATION`; a refused create leaves no grant, asserted against `domainSnapshot`; `setAccess` grants, revokes, round-trips through the selector, refuses a member with `FORBIDDEN` on an untouched snapshot, and refuses the workspace itself
+  - The old `expect(created?.visibility).toBe("public")` is gone, and the test that passed `visibility: "private"` is now the one that asserts the restricted default — the behaviour it was checking is now the default rather than an option
+  - _Requirements: 8.15, 8.15.1, 8.16, 18.4, 18.5.2_
+- [x] 33.3 `views/sidebar/access.test.tsx` — the UI reaches it
+  - Six cases, each asserted by **switching user and reading the tree** rather than by inspecting grants: the form opens restricted and says so; a space created with Carol ticked is hers and not Bob's; an admin's row is ticked, disabled and captioned; revoking Bob on Backlog leaves Sprint 14 his; the seed's deny on Infra can be lifted; the menu item is disabled with a reason for a member
+  - Asserting through the tree is the point. Asserting grant rows would pass with a broken dialog
+  - _Requirements: 8.15, 8.16, 18.7.1_
+- [ ] 33.4 Re-cut the seed around the new default
+  - The fixtures still use `public` for most containers, which is now a choice the seed makes rather than the one creation makes for it. That is defensible — "Everyone" is still a legitimate mode, and the public/private/deny arrangement _is_ the 30-second demo — but it means the seeded tree does not demonstrate the new default, and a reviewer sees it only by creating something
+  - Left open deliberately: roughly eight tests assert the exact node sets the current grants produce, and re-cutting it trades a working demo for a consistency nobody can see. Named here rather than discovered later
+  - _Requirements: 8.14, 9.2_
+- [ ] 33.5 Carry access into the README's permission section
+  - 24.4 documents the resolution algorithm, the admin bypass and the view/edit split. It now also needs the access translation, the closed-by-default creation rule and the `container:share` capability — and the extension note should say that teams are additive because a save preserves non-user rows
+  - _Requirements: 19.4, 19.12_

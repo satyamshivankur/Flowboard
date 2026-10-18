@@ -1,6 +1,14 @@
 import { SortableKeyboardPlugin } from "@dnd-kit/dom/sortable";
 import { useSortable } from "@dnd-kit/react/sortable";
-import { ChevronRight, MoreHorizontal, Plus } from "lucide-react";
+import {
+  Archive,
+  ChevronRight,
+  Lock,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Users,
+} from "lucide-react";
 
 import { IconButton } from "@/components/ui/IconButton";
 import { Menu, type MenuItemSpec } from "@/components/ui/Menu";
@@ -21,10 +29,14 @@ export interface TreeItemProps {
   readonly collapsed: boolean;
   readonly canEditStructure: boolean;
   readonly structureReason: string | undefined;
+  /** `container:share` — kept separate from structure edits (Req 8.16). */
+  readonly canManageAccess: boolean;
+  readonly accessReason: string | undefined;
   readonly onSelect: (row: TreeRowViewModel) => void;
   readonly onToggle: (id: string) => void;
   readonly onRename: (row: TreeRowViewModel) => void;
   readonly onCreateChild: (row: TreeRowViewModel, childType: string) => void;
+  readonly onManageAccess: (row: TreeRowViewModel) => void;
   readonly onArchive: (row: TreeRowViewModel) => void;
   readonly onFocus: (id: string) => void;
 }
@@ -49,10 +61,13 @@ export function TreeItem({
   collapsed,
   canEditStructure,
   structureReason,
+  canManageAccess,
+  accessReason,
   onSelect,
   onToggle,
   onRename,
   onCreateChild,
+  onManageAccess,
   onArchive,
   onFocus,
 }: TreeItemProps) {
@@ -106,14 +121,36 @@ export function TreeItem({
         onCreateChild(row, childType);
       },
     })),
+    /*
+     * Only where the registry says a grant may attach, so the workspace row
+     * does not offer an access list it cannot hold (Requirement 21.4).
+     */
+    ...(row.grantable
+      ? [
+          {
+            id: "access",
+            label: "Manage access",
+            icon: Users,
+            disabled: !canManageAccess,
+            ...(accessReason === undefined
+              ? {}
+              : { disabledReason: accessReason }),
+            separatorBefore: row.childTypes.length > 0,
+            onSelect: () => {
+              onManageAccess(row);
+            },
+          },
+        ]
+      : []),
     {
       id: "rename",
       label: "Rename",
+      icon: Pencil,
       disabled: !canEditStructure || !row.mutable,
       ...(structureReason === undefined
         ? {}
         : { disabledReason: structureReason }),
-      separatorBefore: row.childTypes.length > 0,
+      separatorBefore: !row.grantable && row.childTypes.length > 0,
       onSelect: () => {
         onRename(row);
       },
@@ -122,6 +159,7 @@ export function TreeItem({
       id: "archive",
       label: "Archive",
       tone: "danger" as const,
+      icon: Archive,
       disabled: !canEditStructure || !row.mutable,
       ...(structureReason === undefined
         ? {}
@@ -227,6 +265,23 @@ export function TreeItem({
             >
               {row.name}
             </span>
+          )}
+
+          {/*
+            Restricted access is otherwise invisible until someone opens the
+            dialog. The icon is decorative and the state is carried in text for
+            assistive technology, so the distinction is never colour or shape
+            alone (Requirement 17.7).
+          */}
+          {!collapsed && row.restricted && (
+            <>
+              <Lock
+                className="size-icon-sm shrink-0 text-ink-400"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className="sr-only">Restricted access</span>
+            </>
           )}
         </button>
 

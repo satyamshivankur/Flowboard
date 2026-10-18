@@ -25,6 +25,14 @@ export interface TreeRowViewModel {
   readonly childTypes: readonly ContainerType[];
   /** True when this type may be renamed or archived at all. */
   readonly mutable: boolean;
+  /** True when this type may carry an access list (Requirement 8.16). */
+  readonly grantable: boolean;
+  /**
+   * True when access is restricted to an explicit list rather than open to the
+   * workspace. Drives the row's lock affordance — the only place a user can
+   * tell the two apart without opening a dialog.
+   */
+  readonly restricted: boolean;
   readonly children: readonly TreeRowViewModel[];
 }
 
@@ -49,6 +57,8 @@ function toRow(node: TreeNode): TreeRowViewModel {
     holdsTasks: node.holdsTasks,
     childTypes: config.childTypes,
     mutable: config.mutable,
+    grantable: config.grantable,
+    restricted: node.container.visibility === "private",
     children: node.children.map(toRow),
   };
 }

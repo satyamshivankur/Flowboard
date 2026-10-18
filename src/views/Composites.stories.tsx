@@ -353,6 +353,7 @@ function TreeHost() {
         isLoading={tree.isLoading}
         onRename={noop}
         onCreateChild={noop}
+        onManageAccess={noop}
       />
     </div>
   );

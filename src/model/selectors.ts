@@ -1,10 +1,15 @@
-import type { Capability } from "@/config/capabilities";
+import type { Capability, Role } from "@/config/capabilities";
 import { CONTAINER_REGISTRY, holdsTasks } from "@/config/containers";
 import { PAGE_SIZE } from "@/config/limits";
 import { comparePriority } from "@/config/priorities";
 import { TERMINAL_STATUS_CATEGORY } from "@/config/statusCategories";
 import { compareDueDate } from "@/lib/date";
 
+import {
+  accessForContainer,
+  RESTRICTED_ACCESS,
+  type ContainerAccess,
+} from "./access";
 import { ancestorChain, childContainers, subtasksOf } from "./hierarchy";
 import { can, canView, canViewTask } from "./permissions";
 import { sortByPosition } from "./position";
@@ -429,6 +434,52 @@ export function selectWorkspaceMembers(
     .filter((membership) => membership.workspaceId === scope.workspaceId)
     .map((membership) => state.users[membership.userId])
     .filter((user): user is User => user !== undefined);
+}
+
+/** A workspace member together with the role they hold *in that workspace*. */
+export interface WorkspaceMember {
+  readonly user: User;
+  readonly role: Role;
+}
+
+/**
+ * Members with their resolved role.
+ *
+ * The access picker needs both: the name to show, and whether the role already
+ * bypasses the list it is about to edit. Pairing them here keeps the View from
+ * calling `roleOf` per row, which would be the View deciding permissions
+ * (Requirement 8.12).
+ */
+export function selectWorkspaceMemberships(
+  state: FlowboardState,
+  scope: Scope,
+): readonly WorkspaceMember[] {
+  return state.memberships
+    .filter((membership) => membership.workspaceId === scope.workspaceId)
+    .map((membership) => {
+      const user = state.users[membership.userId];
+
+      return user === undefined ? undefined : { user, role: membership.role };
+    })
+    .filter((member): member is WorkspaceMember => member !== undefined);
+}
+
+/**
+ * Who may see a container, in the shape the access dialog edits
+ * (Requirement 8.16).
+ *
+ * Scoped like every other selector, and gated on the caller being able to see
+ * the container at all — an access list is itself information about a resource,
+ * so it should not leak for one the user cannot view.
+ */
+export function selectContainerAccess(
+  state: FlowboardState,
+  scope: Scope,
+  containerId: string,
+): ContainerAccess {
+  if (!canView(state, scope, containerId)) return RESTRICTED_ACCESS;
+
+  return accessForContainer(state, scope.workspaceId, containerId);
 }
 
 /** Resolves assignee ids to users, dropping any that no longer exist. */

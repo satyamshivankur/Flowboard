@@ -3,6 +3,12 @@ import { nanoid } from "nanoid";
 import { CONTAINER_REGISTRY, holdsTasks } from "@/config/containers";
 import { POSITION_GAP } from "@/config/limits";
 import { DEFAULT_STATUS_TEMPLATE } from "@/config/statusCategories";
+import {
+  defaultAccessFor,
+  grantRowsForAccess,
+  grantsExcluding,
+  type ContainerAccess,
+} from "@/model/access";
 import { childContainers, descendantContainers } from "@/model/hierarchy";
 import { requireCapability } from "@/model/permissions";
 import { positionForIndex, sortByPosition } from "@/model/position";
@@ -10,8 +16,10 @@ import type { AppError, Result } from "@/model/result";
 import { findContainer, type MutableFlowboardState } from "@/model/state";
 import type { Container, Scope, Status } from "@/model/types";
 import {
+  validateAccessMembers,
   validateContainerMove,
   validateContainerName,
+  validateGrantableType,
   validateParentType,
 } from "@/model/validation";
 
@@ -111,6 +119,28 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
     });
   }
 
+  /**
+   * Writes a container's access list into the draft.
+   *
+   * One function for creation and for a later edit, which is the point: if the
+   * two derived their grant rows separately, an access list chosen at creation
+   * and the same list chosen a minute later could produce different grants.
+   *
+   * The replacement is narrowed to this resource's user-subject rows, so a save
+   * cannot disturb another container's permissions (Requirement 8.16).
+   */
+  function writeAccess(
+    draft: MutableFlowboardState,
+    workspaceId: string,
+    resourceId: string,
+    access: ContainerAccess,
+  ): void {
+    draft.grants = [
+      ...grantsExcluding(draft.grants, workspaceId, resourceId),
+      ...grantRowsForAccess(draft, workspaceId, resourceId, access),
+    ];
+  }
+
   return {
     create: (scope: Scope, input): Promise<Result<Container>> =>
       runMutation(pipeline, {
@@ -127,6 +157,22 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
           return firstError(
             validateContainerName(input.name),
             validateParentType(parent.type, input.type),
+            /*
+             * Only validated when the caller actually supplied an access list.
+             * The fallback is derived from the registry and so is correct by
+             * construction — validating it would be asserting against our own
+             * configuration.
+             */
+            input.access === undefined
+              ? null
+              : firstError(
+                  validateGrantableType(input.type),
+                  validateAccessMembers(
+                    state,
+                    scope.workspaceId,
+                    input.access.memberIds,
+                  ),
+                ),
           );
         },
         authorize: (state) =>
@@ -142,6 +188,14 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
 
           const now = new Date().toISOString();
 
+          /*
+           * The default is `defaultAccessFor`, not `"public"`. That one word is
+           * the whole behaviour change: a container used to arrive visible to
+           * every member of the workspace, which made "who can see this" a
+           * decision nobody ever made (Requirement 8.15).
+           */
+          const access = input.access ?? defaultAccessFor(input.type);
+
           const created: Container = {
             id: `${input.type.slice(0, 2)}-${nanoid(8)}`,
             workspaceId: scope.workspaceId,
@@ -149,7 +203,7 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
             type: input.type,
             parentId: input.parentId,
             position: positionForIndex(siblings, siblings.length),
-            visibility: input.visibility ?? "public",
+            visibility: access.visibility,
             archivedAt: null,
             createdAt: now,
             updatedAt: now,
@@ -158,7 +212,59 @@ export function createContainerSlice(context: SliceContext): ContainerActions {
           draft.containers[created.id] = created;
           seedDefaultStatuses(draft, created);
 
+          /*
+           * Same `apply` as the container and its statuses, for the reason
+           * documented on `seedDefaultStatuses`: a follow-up mutation is a
+           * second chance to fail, and failing it here would leave a container
+           * whose access nobody chose — the exact state this change removes.
+           */
+          writeAccess(draft, scope.workspaceId, created.id, access);
+
           return created;
+        },
+      }),
+
+    /**
+     * Re-decides who may see a container, at any point after creation.
+     *
+     * Authorized with `container:share` rather than `container:update`, so a
+     * role that may rename a list but not re-share it is a capability-table
+     * entry away (Requirement 8.16, 21.7).
+     */
+    setAccess: (scope, containerId, access): Promise<Result<Container>> =>
+      runMutation(pipeline, {
+        validate: (state): AppError | null => {
+          const container = findContainer(state, containerId);
+
+          if (!container) {
+            return {
+              code: "NOT_FOUND",
+              message: "That item no longer exists.",
+            };
+          }
+
+          return firstError(
+            validateGrantableType(container.type),
+            validateAccessMembers(state, scope.workspaceId, access.memberIds),
+          );
+        },
+        authorize: (state) =>
+          requireCapability(state, scope, "container:share", containerId),
+        apply: (draft) => {
+          const existing = draft.containers[containerId];
+
+          if (!existing) throw new Error("Container vanished mid-mutation");
+
+          const updated: Container = {
+            ...existing,
+            visibility: access.visibility,
+            updatedAt: new Date().toISOString(),
+          };
+
+          draft.containers[containerId] = updated;
+          writeAccess(draft, scope.workspaceId, containerId, access);
+
+          return updated;
         },
       }),
 

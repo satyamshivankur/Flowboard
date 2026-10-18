@@ -29,6 +29,7 @@ export interface SidebarTreeProps {
   readonly isLoading: boolean;
   readonly onRename: (row: TreeRowViewModel) => void;
   readonly onCreateChild: (row: TreeRowViewModel, childType: string) => void;
+  readonly onManageAccess: (row: TreeRowViewModel) => void;
   /** Called after a list is selected, so the mobile sheet can close itself. */
   readonly onAfterSelect?: () => void;
 }
@@ -89,6 +90,7 @@ export function SidebarTree({
   isLoading,
   onRename,
   onCreateChild,
+  onManageAccess,
   onAfterSelect,
 }: SidebarTreeProps) {
   const { selectedListId, selectList } = useNavigation();
@@ -324,10 +326,13 @@ export function SidebarTree({
             collapsed={collapsed}
             canEditStructure={permissions.can("container:update", row.id)}
             structureReason={permissions.reasonFor("container:update", row.id)}
+            canManageAccess={permissions.can("container:share", row.id)}
+            accessReason={permissions.reasonFor("container:share", row.id)}
             onSelect={handleSelect}
             onToggle={toggleExpanded}
             onRename={onRename}
             onCreateChild={onCreateChild}
+            onManageAccess={onManageAccess}
             onArchive={handleArchive}
             onFocus={setFocusedId}
           />

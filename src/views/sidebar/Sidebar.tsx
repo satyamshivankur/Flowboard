@@ -95,6 +95,9 @@ function SidebarBody({ onAfterSelect }: { onAfterSelect?: () => void }) {
               parentName: row.name,
             });
           }}
+          onManageAccess={(row: TreeRowViewModel) => {
+            setRequest({ mode: "access", containerId: row.id });
+          }}
         />
       </ScrollShadow>
 

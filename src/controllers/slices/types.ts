@@ -1,6 +1,7 @@
 import type { PersistenceAdapter } from "@/adapters/persistence/types";
 import type { Transport } from "@/adapters/transport/types";
 import type { Priority } from "@/config/priorities";
+import type { ContainerAccess } from "@/model/access";
 import type { Result } from "@/model/result";
 import type { FlowboardState, MutableFlowboardState } from "@/model/state";
 import type { Container, Scope, Status, Task, User } from "@/model/types";
@@ -40,7 +41,16 @@ export interface CreateContainerInput {
   readonly parentId: string;
   readonly type: Container["type"];
   readonly name: string;
-  readonly visibility?: Container["visibility"];
+  /**
+   * Who may see it, decided by the creator.
+   *
+   * Omitting it does **not** mean "everyone" — it falls back to
+   * `defaultAccessFor(type)`, which is restricted for any grantable type. The
+   * create form always sends an explicit value; the fallback exists so a
+   * programmatic caller that forgets cannot accidentally publish a container
+   * to the whole workspace (Requirement 8.15).
+   */
+  readonly access?: ContainerAccess;
 }
 
 export interface ContainerActions {
@@ -52,6 +62,15 @@ export interface ContainerActions {
     scope: Scope,
     containerId: string,
     name: string,
+  ) => Promise<Result<Container>>;
+  /**
+   * Replaces a container's access list — visibility and the per-member grants
+   * — in one mutation, so the two cannot land apart (Requirement 8.16).
+   */
+  readonly setAccess: (
+    scope: Scope,
+    containerId: string,
+    access: ContainerAccess,
   ) => Promise<Result<Container>>;
   readonly archive: (
     scope: Scope,

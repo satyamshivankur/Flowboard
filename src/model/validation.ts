@@ -1,6 +1,7 @@
 import {
   CONTAINER_REGISTRY,
   canContain,
+  isGrantableType,
   type ContainerTypeConfig,
 } from "@/config/containers";
 import {
@@ -13,7 +14,12 @@ import { isPriority } from "@/config/priorities";
 
 import { isDescendantOf, taskDepth } from "./hierarchy";
 import type { AppError } from "./result";
-import { findContainer, findStatus, findTask, type FlowboardState } from "./state";
+import {
+  findContainer,
+  findStatus,
+  findTask,
+  type FlowboardState,
+} from "./state";
 
 /**
  * Field and structural validation.
@@ -131,6 +137,62 @@ export function validateAssignees(
   return null;
 }
 
+/**
+ * The members named in an access list must be members of the workspace.
+ *
+ * Same shape as `validateAssignees` and for the same reason: an id that is not
+ * a member would persist as a grant row matching nobody, which is a permission
+ * record that quietly means nothing (Requirement 8.15).
+ */
+export function validateAccessMembers(
+  state: FlowboardState,
+  workspaceId: string,
+  memberIds: readonly string[],
+): AppError | null {
+  if (new Set(memberIds).size !== memberIds.length) {
+    return invalid("Access can list each member only once.", "memberIds");
+  }
+
+  const members = new Set(
+    state.memberships
+      .filter((membership) => membership.workspaceId === workspaceId)
+      .map((membership) => membership.userId),
+  );
+
+  for (const userId of memberIds) {
+    if (!members.has(userId)) {
+      return invalid(
+        "That user is not a member of this workspace.",
+        "memberIds",
+      );
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Whether a container of this type may carry an access list at all.
+ *
+ * Read from the registry's `grantable` flag, so a hierarchy level that is not
+ * shareable — the workspace itself — refuses the operation here rather than
+ * accepting grant rows the permission walk would then honour (Requirement 21.4).
+ */
+export function validateGrantableType(
+  type: string,
+  registry: Partial<
+    Record<string, ContainerTypeConfig<string>>
+  > = CONTAINER_REGISTRY,
+): AppError | null {
+  if (!isGrantableType(type, registry)) {
+    const label = registry[type]?.label ?? type;
+
+    return invalid(`A ${label.toLowerCase()}'s access cannot be changed.`);
+  }
+
+  return null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Structure                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -152,7 +214,9 @@ export function validateParentType(
     const parentLabel = registry[parentType]?.label ?? parentType;
     const childLabel = registry[childType]?.labelPlural ?? childType;
 
-    return invalid(`A ${parentLabel.toLowerCase()} cannot contain ${childLabel.toLowerCase()}.`);
+    return invalid(
+      `A ${parentLabel.toLowerCase()} cannot contain ${childLabel.toLowerCase()}.`,
+    );
   }
 
   return null;
@@ -222,10 +286,7 @@ export function validateStatusBelongsToList(
   }
 
   if (status.listId !== listId) {
-    return invalid(
-      "That status belongs to a different list.",
-      "statusId",
-    );
+    return invalid("That status belongs to a different list.", "statusId");
   }
 
   return null;

@@ -4,18 +4,31 @@ import { canView } from "@/model/permissions";
 import { SEED_IDS } from "@/model/seed";
 import {
   selectBoardColumns,
+  selectContainerAccess,
   selectStatusesForList,
   selectVisibleTree,
   type TreeNode,
 } from "@/model/selectors";
+import type { Grant } from "@/model/types";
 import { scopeFor } from "@/test/fixtures";
 import { createTestStore, domainSnapshot } from "@/test/store";
 
 const alice = scopeFor(SEED_IDS.users.alice);
 const bob = scopeFor(SEED_IDS.users.bob);
+const carol = scopeFor(SEED_IDS.users.carol);
 
 function idsOf(nodes: readonly TreeNode[]): string[] {
   return nodes.flatMap((node) => [node.container.id, ...idsOf(node.children)]);
+}
+
+/** The grant rows attached to one container, for asserting what was written. */
+function grantsOn(
+  store: ReturnType<typeof createTestStore>,
+  resourceId: string,
+): readonly Grant[] {
+  return store
+    .getState()
+    .grants.filter((grant) => grant.resourceId === resourceId);
 }
 
 describe("createContainer", () => {
@@ -35,7 +48,6 @@ describe("createContainer", () => {
     expect(created?.name).toBe("Sprint 15");
     expect(created?.type).toBe("list");
     expect(created?.parentId).toBe(SEED_IDS.folders.q2);
-    expect(created?.visibility).toBe("public");
     expect(created?.archivedAt).toBeNull();
     expect(created?.workspaceId).toBe(SEED_IDS.workspace);
 
@@ -127,22 +139,198 @@ describe("createContainer", () => {
     expect(domainSnapshot(store)).toEqual(before);
   });
 
-  it("accepts a private visibility at creation", async () => {
+  /*
+   * The behaviour change of Requirement 8.15. Creation used to default to
+   * `public`, handing every member access to a container nobody had decided to
+   * share. It now fails closed: admins only, until someone says otherwise.
+   */
+  it("restricts a new container to admins when no access is given", async () => {
     const store = createTestStore();
 
     const result = await store.getState().actions.container.create(alice, {
       parentId: SEED_IDS.workspace,
       type: "space",
       name: "Finance",
-      visibility: "private",
     });
 
-    expect(result.ok ? result.data.visibility : null).toBe("private");
+    const createdId = result.ok ? result.data.id : "";
 
-    // Private with no grant means even another admin-less member cannot see it.
+    expect(result.ok ? result.data.visibility : null).toBe("private");
+    expect(canView(store.getState(), alice, createdId)).toBe(true);
+    expect(canView(store.getState(), bob, createdId)).toBe(false);
+    expect(canView(store.getState(), carol, createdId)).toBe(false);
+
+    // No grant rows either — restricted means "nothing written", not
+    // "everything denied".
+    expect(grantsOn(store, createdId)).toEqual([]);
+  });
+
+  it("gives access to exactly the members chosen at creation", async () => {
+    const store = createTestStore();
+
+    const result = await store.getState().actions.container.create(alice, {
+      parentId: SEED_IDS.workspace,
+      type: "space",
+      name: "Finance",
+      access: { visibility: "private", memberIds: [SEED_IDS.users.carol] },
+    });
+
+    const createdId = result.ok ? result.data.id : "";
+
+    expect(canView(store.getState(), carol, createdId)).toBe(true);
+    expect(canView(store.getState(), bob, createdId)).toBe(false);
+
+    expect(grantsOn(store, createdId)).toEqual([
+      {
+        workspaceId: SEED_IDS.workspace,
+        resourceId: createdId,
+        subjectId: SEED_IDS.users.carol,
+        subjectType: "user",
+        mode: "allow",
+      },
+    ]);
+  });
+
+  /*
+   * "Everyone" is still expressible — it is no longer the default. Excluding a
+   * member writes the deny row, which is the same mechanism the seed uses for
+   * Bob on Infra.
+   */
+  it("opens a container to everyone except the members left out", async () => {
+    const store = createTestStore();
+
+    const result = await store.getState().actions.container.create(alice, {
+      parentId: SEED_IDS.workspace,
+      type: "space",
+      name: "Finance",
+      access: { visibility: "public", memberIds: [SEED_IDS.users.bob] },
+    });
+
+    const createdId = result.ok ? result.data.id : "";
+
+    expect(result.ok ? result.data.visibility : null).toBe("public");
+    expect(canView(store.getState(), bob, createdId)).toBe(true);
+    expect(canView(store.getState(), carol, createdId)).toBe(false);
+    expect(grantsOn(store, createdId).map((grant) => grant.mode)).toEqual([
+      "deny",
+    ]);
+  });
+
+  it("refuses an access list naming someone outside the workspace", async () => {
+    const store = createTestStore();
+    const before = domainSnapshot(store);
+
+    const result = await store.getState().actions.container.create(alice, {
+      parentId: SEED_IDS.workspace,
+      type: "space",
+      name: "Finance",
+      access: { visibility: "private", memberIds: ["u-stranger"] },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("VALIDATION");
+    expect(domainSnapshot(store)).toEqual(before);
+  });
+
+  /*
+   * The grants belong to the same `apply` as the container and its statuses,
+   * for the same reason: a follow-up write would pass every other assertion
+   * here and fail only this one.
+   */
+  it("writes no grants when creation is refused", async () => {
+    const store = createTestStore();
+    const before = domainSnapshot(store);
+
+    const result = await store.getState().actions.container.create(bob, {
+      parentId: SEED_IDS.folders.q2,
+      type: "list",
+      name: "Sprint 15",
+      access: { visibility: "private", memberIds: [SEED_IDS.users.carol] },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(domainSnapshot(store)).toEqual(before);
+  });
+});
+
+describe("setContainerAccess", () => {
+  it("grants a member access to an existing public container", async () => {
+    const store = createTestStore();
+
+    // Bob is denied Infra in the seed; re-including him lifts it.
+    const result = await store
+      .getState()
+      .actions.container.setAccess(alice, SEED_IDS.lists.infra, {
+        visibility: "public",
+        memberIds: [SEED_IDS.users.bob, SEED_IDS.users.carol],
+      });
+
+    expect(result.ok).toBe(true);
+    expect(canView(store.getState(), bob, SEED_IDS.lists.infra)).toBe(true);
+    expect(grantsOn(store, SEED_IDS.lists.infra)).toEqual([]);
+  });
+
+  it("revokes access from a member of an existing container", async () => {
+    const store = createTestStore();
+
+    await store
+      .getState()
+      .actions.container.setAccess(alice, SEED_IDS.lists.backlog, {
+        visibility: "private",
+        memberIds: [SEED_IDS.users.carol],
+      });
+
+    expect(canView(store.getState(), carol, SEED_IDS.lists.backlog)).toBe(true);
+    expect(canView(store.getState(), bob, SEED_IDS.lists.backlog)).toBe(false);
+
+    // Bob keeps the rest of the tree — a save touches one resource's rows.
+    expect(canView(store.getState(), bob, SEED_IDS.lists.sprint14)).toBe(true);
+  });
+
+  it("reads back the access it just wrote", async () => {
+    const store = createTestStore();
+    const access = {
+      visibility: "private" as const,
+      memberIds: [SEED_IDS.users.bob],
+    };
+
+    await store
+      .getState()
+      .actions.container.setAccess(alice, SEED_IDS.spaces.marketing, access);
+
     expect(
-      canView(store.getState(), bob, result.ok ? result.data.id : ""),
-    ).toBe(false);
+      selectContainerAccess(store.getState(), alice, SEED_IDS.spaces.marketing),
+    ).toEqual(access);
+  });
+
+  it("refuses a member and leaves every grant untouched", async () => {
+    const store = createTestStore();
+    const before = domainSnapshot(store);
+
+    const result = await store
+      .getState()
+      .actions.container.setAccess(bob, SEED_IDS.lists.backlog, {
+        visibility: "private",
+        memberIds: [SEED_IDS.users.bob],
+      });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("FORBIDDEN");
+    expect(domainSnapshot(store)).toEqual(before);
+  });
+
+  it("refuses the workspace itself, which carries no access list", async () => {
+    const store = createTestStore();
+
+    const result = await store
+      .getState()
+      .actions.container.setAccess(alice, SEED_IDS.workspace, {
+        visibility: "private",
+        memberIds: [],
+      });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.code).toBe("VALIDATION");
   });
 });
 

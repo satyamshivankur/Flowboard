@@ -36,7 +36,7 @@ Multiple workspaces, team-based grants, role hierarchies and additional view typ
 
 1.3. WHEN a caller attempts to create or move a container under an invalid parent type, THEN the Controller SHALL reject the operation with error code `VALIDATION` and SHALL NOT mutate the Model.
 
-1.4. The system SHALL support create, read, rename/update and archive operations for `space`, `folder` and `list` container types. WHERE the created type holds tasks, creation SHALL also establish the container's default status set in the same mutation, per Requirement 3.3.1 — a created list is usable immediately or it is not created.
+1.4. The system SHALL support create, read, rename/update and archive operations for `space`, `folder` and `list` container types. WHERE the created type holds tasks, creation SHALL also establish the container's default status set in the same mutation, per Requirement 3.3.1 — a created list is usable immediately or it is not created. WHERE the created type can carry a grant, creation SHALL also establish who may access it in that same mutation, per Requirement 8.15.1 — the container and the decision about who can see it land together or not at all.
 
 1.5. The system SHALL implement deletion as **soft-delete (archive)** by setting `archivedAt` to an ISO timestamp. Archiving a container SHALL cascade to its descendant containers and to the tasks of any archived list.
 
@@ -273,6 +273,8 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 8.5. A container SHALL carry a `visibility` of `public` or `private`. Public containers SHALL be visible to all workspace members unless explicitly denied. Private containers SHALL be visible only with an explicit `allow` grant.
 
+8.5.1. `visibility` and the container's grant rows SHALL be treated as two halves of one decision — "who can access this" — and SHALL be read and written through a single translation in the Model, in both directions. A saved access list SHALL read back as the same access list. Two separately hand-written mappings SHALL NOT be used, since they agree only until one of them is edited.
+
 8.6. A user's role SHALL be resolved from their membership in the workspace being evaluated, not from a global field on the user, so that a user can hold different roles in different workspaces once more than one exists. Users whose resolved role for the workspace is `admin` SHALL bypass all visibility and edit checks.
 
 8.7. Visibility SHALL be resolved by walking the ancestor chain from workspace down to the node, in a single deterministic pass, where a `private` node resets visibility to denied and an explicit grant at a node overrides the inherited result for that node and its subtree. The nearest grant in the chain SHALL win.
@@ -283,7 +285,9 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 8.8. All tree and task selectors SHALL return only nodes and tasks the current user is permitted to view. A task SHALL be viewable if and only if its primary list is viewable.
 
-8.9. Edit permission SHALL be defined as: admins may edit anything; members may create, update, delete and reorder **tasks** in lists they can view; container create, rename, archive and reorder operations SHALL be admin-only.
+8.9. Edit permission SHALL be defined as: admins may edit anything; members may create, update, delete and reorder **tasks** in lists they can view; container create, rename, archive, reorder and **access** operations SHALL be admin-only.
+
+8.9.1. Deciding who may access a container SHALL be its own capability, distinct from the one that governs renaming it. Renaming a list and deciding who can see it are different powers, and a role that may do the first but not the second SHALL be expressible as a capability-table entry rather than as new control flow (Requirement 21.7).
 
 8.10. WHEN a user attempts to read or mutate a resource they cannot view, THEN the Controller SHALL return `{ error: { code: 'FORBIDDEN', message } }` without mutating the Model.
 
@@ -294,6 +298,34 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 8.13. WHEN the selected list becomes invisible after a user switch, THEN the main content SHALL render a permission-denied state offering navigation to a list the new user can see, and any open drawer for a now-denied task SHALL close.
 
 8.14. The difference between Alice's and Bob's visible tree SHALL be demonstrable within 30 seconds using only the user switcher, which requires at least one private space or list granted to a subset of users and at least one explicit `deny` in the seed grants.
+
+### Access is decided, never defaulted open
+
+8.15. WHEN a container is created, THEN the access of each member user SHALL be a decision made at creation time, and the creation form SHALL present it. A created container SHALL NOT be visible to every workspace member by default.
+
+8.15.1. The access chosen SHALL be written in the **same mutation** that writes the container, alongside its default status set, so that the container and the decision about who can see it land together or not at all. A follow-up mutation SHALL NOT be used: a second call is a second opportunity to fail, and failing it leaves a container whose access nobody chose — which is the state this requirement exists to remove.
+
+8.15.2. WHERE a caller creates a container without stating access, the fallback SHALL be derived from the container registry and SHALL fail **closed** for any type that can carry a grant — reachable only by roles holding `workspace:bypass` until someone widens it. Permissions are the one place where defaulting open is the wrong default, so an omission SHALL NOT be read as "everyone".
+
+8.15.3. WHERE a container type cannot carry a grant, the system SHALL refuse an access list for it rather than accept one the permission walk would then honour, and its fallback SHALL remain open — a level with no way to carry a grant has no way back from `private`, so locking one down would make it permanently invisible.
+
+8.15.4. An access list SHALL name only members of the workspace being scoped, and SHALL name each at most once. An id that is not a member would persist as a grant row matching nobody, which is a permission record that quietly means nothing.
+
+8.16. The access of an existing container SHALL be editable by an admin at any point after creation, through an affordance on the container itself, and SHALL use the same control as creation — an admin deciding access on a new list and revisiting it a week later SHALL be looking at the same thing.
+
+8.16.1. Saving access SHALL replace only the grant rows belonging to that container and that subject type. Rows for other containers SHALL be left untouched, so one save cannot rewrite the rest of the workspace's permissions; rows for other subject types SHALL be left untouched, so adding team grants later does not make every access save silently delete them (Requirement 21.8).
+
+8.16.2. Edits SHALL be held as a local draft and committed on save. Writing each toggle through to the store would make a half-made decision live — granting a member access before the admin has finished deciding — and would pay the simulated latency per checkbox.
+
+8.16.3. The access control SHALL present one list of members with one meaning — "has access" — and a mode above it selecting whether access is open to the workspace or restricted to the list. Under the restricted mode a selection SHALL write an explicit `allow`; under the open mode a de-selection SHALL write an explicit `deny`. A three-state allow/inherit/deny control per member SHALL NOT be used, since it exposes the storage model rather than the question being asked.
+
+8.16.4. Switching from restricted to open SHALL select every governed member. Carrying a sparse selection into the open mode would turn "not granted yet" into "actively blocked" without the user asking for it. Switching the other way SHALL preserve the selection, which already means what it will mean.
+
+8.16.5. A role that bypasses visibility checks SHALL be shown in the member list as permanently included and SHALL NOT be editable or omitted. An admin missing from a list titled "who can access this" reads as an omission rather than as a bypass, and a grant row for such a role would imply a control that does not exist.
+
+8.16.6. WHERE a member is granted access to a container but cannot reach that container's parent, the UI SHALL say so rather than silently correct it. Because the nearest grant wins (8.7), such a grant makes the container viewable while the tree still stops at the ancestor — so the container is granted and unreachable, and which of the two to change is a judgement the Controller SHALL NOT make on the admin's behalf.
+
+8.16.7. The sidebar SHALL distinguish a container whose access is restricted from one open to the workspace, without requiring the access dialog to be opened. That state SHALL NOT be conveyed by colour or shape alone (Requirement 17.7).
 
 ---
 
@@ -576,9 +608,13 @@ Any surface that edits a subtask SHALL omit these three rather than render them 
 
 18.5.1. Unit tests SHALL cover the default status set of Requirement 3.3.1 from three directions: that a newly created list has the three statuses in category order and will accept a task, that a container which does not hold tasks gets none, and that a refused creation leaves neither the container nor any status behind. The third is what pins the "same mutation" guarantee — a follow-up write would pass the first assertion and fail that one.
 
+18.5.2. Unit tests SHALL cover the access translation of Requirement 8.5.1 as a **round-trip property** over every mode and selection, rather than by asserting a read mapping and a write mapping separately. Two mappings asserted independently both pass while disagreeing with each other; the property is what cannot. The same set SHALL assert that a role holding `workspace:bypass` never appears in an access list or in a written grant row, that a grant on another resource or another subject type survives a save, and that a creation refused for permission leaves no grant behind.
+
 18.6. Unit tests SHALL cover optimistic rollback: a forced failure SHALL restore the pre-mutation state exactly.
 
 18.7. At least one component test SHALL render a real view and assert behaviour — switching the current user changes the rendered tree, and opening a task renders the drawer and closes on Escape.
+
+18.7.1. Component tests SHALL cover both access moments through the real UI and SHALL assert the outcome by **switching user and inspecting the tree**, not by inspecting grant rows: that a creation form opens restricted, that a container created with one member ticked is visible to that member and not to another, that an admin appears permanently included, that revoking a member's access to one list leaves their sibling lists alone, that an existing explicit deny can be lifted, and that the access affordance is disabled with a reason for a member. The grant arithmetic is unit-tested; what these add is that the UI reaches it.
 
 18.8. Tests SHALL use the deterministic seed fixtures and SHALL set simulated latency to zero, so the suite is fast and non-flaky.
 

@@ -18,6 +18,16 @@ export type Capability =
   | "container:update"
   | "container:archive"
   | "container:reorder"
+  /**
+   * Decides who may see a container — the access list chosen at creation and
+   * edited afterwards (Requirement 8.15, 8.16).
+   *
+   * Deliberately its own capability rather than folded into
+   * `container:update`. Renaming a list and deciding who can see it are
+   * different powers, and a role that may do the first but not the second is
+   * one table entry away only if they are separable here.
+   */
+  | "container:share"
   | "status:update"
   /**
    * Bypasses every visibility and edit check. Expressed as a capability rather
@@ -70,6 +80,7 @@ export const ALL_CAPABILITIES: readonly Capability[] = [
   "container:update",
   "container:archive",
   "container:reorder",
+  "container:share",
   "status:update",
   "workspace:bypass",
 ];
@@ -84,6 +95,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "container:update": "rename spaces, folders and lists",
   "container:archive": "archive spaces, folders and lists",
   "container:reorder": "reorder spaces, folders and lists",
+  "container:share": "change who can access spaces, folders and lists",
   "status:update": "change status configuration",
   "workspace:bypass": "administer the workspace",
 };

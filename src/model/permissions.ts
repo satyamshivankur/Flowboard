@@ -139,6 +139,34 @@ export function canView(
 }
 
 /**
+ * Whether the user can *reach* a node through the tree, not merely view it.
+ *
+ * These differ, and the difference is a direct consequence of "nearest grant
+ * wins". An `allow` on a list overrides a denied ancestor for that list, so
+ * `canView(list)` is true — but `selectVisibleTree` builds each level from the
+ * one above and stops at the ancestor the user cannot see, so the list never
+ * appears and nothing navigates to it.
+ *
+ * Enforcement does not use this: `canView` remains the gate, because a node a
+ * user holds an explicit grant on is a node they were deliberately given. What
+ * needs it is the access dialog, which would otherwise tell an admin that a
+ * member has access to a list the member cannot actually find
+ * (Requirement 8.16).
+ */
+export function canReach(
+  state: FlowboardState,
+  scope: Scope,
+  nodeId: string,
+  table: CapabilityTable = ROLE_CAPABILITIES,
+): boolean {
+  const chain = ancestorChain(state, nodeId);
+
+  if (chain.length === 0) return false;
+
+  return chain.every((node) => canView(state, scope, node.id, table));
+}
+
+/**
  * Tasks are not granted individually. A task is visible exactly when its
  * primary list is visible (Requirement 8.8).
  */

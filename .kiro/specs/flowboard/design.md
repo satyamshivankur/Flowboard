@@ -36,6 +36,7 @@ The brief scopes one workspace. That is a scope decision, not a modeling decisio
 
 | Narrow today                            | Shaped for                | Mechanism                                                                                              |
 | --------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Per-user access lists                   | Team access lists         | `ContainerAccess` ⇄ `Grant[]` behind one rule table; a save preserves non-user subjects                |
 | One workspace                           | Many                      | `workspaceId` on every entity, workspace-scoped selectors, `Membership` instead of a global role field |
 | Four container levels                   | More or different levels  | `CONTAINER_REGISTRY` drives permitted children, icons, labels and capabilities                         |
 | Board and list views                    | Calendar, timeline, table | `VIEW_REGISTRY` keyed by view id                                                                       |
@@ -152,7 +153,8 @@ src/
 │   ├── result.ts                 # Result, AppError, ErrorCode, ok/err/unwrap
 │   ├── state.ts                  # FlowboardState shape, empty state factory
 │   ├── seed.ts                   # Deterministic fixtures
-│   ├── permissions.ts            # roleOf / resolveGrant / canView / can
+│   ├── permissions.ts            # roleOf / resolveGrant / canView / canReach / can
+│   ├── access.ts                 # ContainerAccess ⇄ Grant[], one rule table
 │   ├── selectors.ts              # Pure (state, scope, args) => data
 │   ├── validation.ts             # Registry-driven field, parent and depth rules
 │   ├── position.ts               # Fractional index arithmetic + rebalance
@@ -182,6 +184,7 @@ src/
 │       ├── useTaskTable.ts
 │       ├── useTaskDrawer.ts
 │       ├── useContainerActions.ts
+│       ├── useContainerAccess.ts  # access + member rows for the share dialog
 │       ├── usePermissions.ts
 │       ├── useAction.ts           # the single error-surfacing path
 │       ├── usePendingAction.ts    # useAction + in-flight keys, for 14.7
@@ -198,7 +201,8 @@ src/
 │
 ├── views/                        # Layer 3 — feature composition
 │   ├── AppShell.tsx
-│   ├── sidebar/                  # SidebarTree, TreeItem, SidebarRail, ...
+│   ├── sidebar/                  # SidebarTree, TreeItem, ContainerFormDialog,
+│   │                             # AccessFields, ...
 │   ├── topbar/                   # TopBar, Breadcrumbs, UserSwitcher, ...
 │   ├── board/                    # KanbanBoard, KanbanColumn, TaskCard, ...
 │   ├── list/                     # TaskListView, TaskTable, TaskRow, ...
@@ -496,6 +500,75 @@ Properties this gives us, each with a test:
 
 Tasks are not granted individually: `canViewTask(task) === canView(task.primaryListId)`.
 
+### Viewing is not the same as reaching
+
+`canView` answers "may this user see this node", and `selectVisibleTree` builds each level from the one above. Those two facts do not compose the way they look like they should, and the gap is a direct consequence of nearest-grant-wins: an `allow` on a list overrides a denied ancestor **for that list**, so `canView(list)` is `true` while the tree still stops at the ancestor and the list is never built.
+
+So `canReach` exists alongside `canView`:
+
+```ts
+export const canReach = (state, scope, nodeId) =>
+  ancestorChain(state, nodeId).every((node) => canView(state, scope, node.id));
+```
+
+Nothing enforces with it. Enforcement stays on `canView`, because a node a user holds an explicit grant on is a node they were deliberately given — denying it would make the grant a lie. What needs `canReach` is the access dialog, which would otherwise tell an admin that Bob has access to a list Bob cannot find. The dialog says so per member and leaves the fix — share the parent too, or don't — to the admin, because which of the two is correct is not something the Controller can know (8.16.6).
+
+### Access is a decision, and it is made once
+
+Storage says `visibility` plus a flat `Grant[]`. That is the right shape for the walk above and the wrong shape to put in front of a person: nobody wants to reason about "public with a deny row" when the question is "can Bob see this". `src/model/access.ts` is the translation, and it is deliberately **one** translation used in both directions:
+
+```
+state  →  accessForContainer   →  ContainerAccess   (what the dialog shows)
+          grantRowsForAccess   →  Grant[]           (what a save stores)
+```
+
+```ts
+export interface ContainerAccess {
+  readonly visibility: Visibility;
+  /** Members with access by this container's own rule. Never a bypassing role. */
+  readonly memberIds: readonly string[];
+}
+```
+
+Both functions read one table, which is the whole reason they cannot drift:
+
+```ts
+const ACCESS_RULE: Record<Visibility, AccessRule> = {
+  private: { grantMode: "allow", grantMeansAccess: true },
+  public: { grantMode: "deny", grantMeansAccess: false },
+};
+```
+
+`private` grants access explicitly, so carrying a row **means** access. `public` grants it by default, so carrying a row means the opposite. One boolean therefore drives the read (`flagged === grantMeansAccess`) and the write (`chosen === grantMeansAccess`), and `access.test.ts` asserts the round trip over every mode and selection rather than asserting the two mappings separately — two independent assertions both pass while disagreeing with each other, which is exactly the bug a permissions mapping cannot afford.
+
+Being a `Record<Visibility, …>` also means a third visibility is a compile error at that declaration rather than a silent fall-through to the `public` branch.
+
+Bypassing roles are excluded from `memberIds` and from every written row. An admin's visibility does not come from this list, so including her would imply a control that does not exist — and the dialog shows her row ticked, disabled and captioned instead, because an admin _missing_ from a list headed "who can access this" reads as an omission rather than as a bypass (8.16.5).
+
+#### The creation default is the behaviour change
+
+`containerSlice.create` used to end its `apply` with `visibility: input.visibility ?? "public"`, and no caller ever passed the argument. Every space, folder and list therefore arrived visible to the entire workspace, which meant "who can see this" was a question the product never asked and the answer was always "everyone". It is now:
+
+```ts
+const access = input.access ?? defaultAccessFor(input.type);
+```
+
+`defaultAccessFor` reads the registry's `grantable` flag and fails **closed** for anything that can carry a grant — admins only, until someone widens it. Three things about that are load-bearing:
+
+- **Fails closed, and only where it can be reopened.** A level that cannot carry a grant has no route back from `private`, so `defaultAccessFor` leaves those open. Resolving it from `grantable` rather than `type !== "workspace"` is the same reasoning as `holdsTasks` over `type === "list"` (21.4) — and it is the first consumer of a registry flag that had been declared and unused since Phase 0.
+- **Same mutation as the container and its statuses.** A follow-up write is a second chance to fail, and with failure injection armed it is a realistic one; failing it leaves a container whose access nobody chose, which is the state this change exists to remove. `containerSlice.test.ts` asserts a refused create against `domainSnapshot` — a follow-up write would satisfy every other assertion in that file and fail only that one.
+- **The fallback is not the UI's path.** The create form always sends an explicit value. The fallback exists so that a programmatic caller which forgets cannot publish a container to the whole workspace by omission.
+
+#### One list of members, two meanings
+
+`AccessFields` renders a mode above a member list, and the list always means "has access". Under **Selected people** a tick writes an `allow`; under **Everyone** the list starts full and unticking writes a `deny`. The alternative — a three-state allow/inherit/deny control per member — exposes the storage model rather than the question being asked, and an admin would have to know the walk to predict what "inherit" does.
+
+One asymmetry is deliberate: switching to **Everyone** ticks every governed member, while switching back preserves the selection. Under Everyone an unticked member is an _explicit deny_, so carrying a sparse selection into that mode would convert "not granted yet" into "actively blocked" without anyone asking for it. Going the other way the ticks already mean what they will mean.
+
+Edits are a local draft committed on save, not a write per checkbox. Per-toggle writes would make a half-made decision live — Bob sees the list before the admin has finished deciding — and would pay the simulated latency three times for one thought.
+
+A save replaces only the user-subject rows for that one resource. Narrowing it twice is not defensiveness: dropping other resources' rows would rewrite the workspace's permissions from a dialog about one list, and dropping other subject types would mean that adding team grants makes every access save quietly delete them (21.8).
+
 ### Capability model
 
 ```ts
@@ -508,8 +581,7 @@ export type Capability =
   | "container:update"
   | "container:archive"
   | "container:reorder"
-  | "status:update";
-
+  | "container:share"
   | "status:update"
   | "workspace:bypass";
 
@@ -541,6 +613,8 @@ export function can(
 
 A member can do anything to tasks in a list they can see, and nothing to the structure. This makes the Alice-vs-Bob demo crisp: Bob sees fewer lists _and_ his sidebar context menus are disabled.
 
+`container:share` is deliberately its own entry rather than folded into `container:update`. Renaming a list and deciding who can see it are different powers, and the second is the one that can hand a person the contents of someone else's space. Keeping them separable is what makes "a lead who may create and rename lists but may not re-share them" a table edit instead of a new branch — which is the claim 21.7 makes and this is the first capability added since, so it is also the test of it.
+
 The policy lives entirely in `ROLE_CAPABILITIES`, so `can()` has no role-specific branches (21.7). Adding a `guest` role that may view but not edit, or a `lead` that may create lists but not archive spaces, is one entry in that table and zero changes to control flow. Tests assert against the table rather than hard-coding "members can't archive" (18.9).
 
 ### Enforcement points
@@ -555,7 +629,7 @@ A `FORBIDDEN` result includes the capability name, producing messages like _"Bob
 
 Every extension below is a change to data or to one function body. None of them touch a call site:
 
-- **Team grants** — add `Team` and `TeamMembership`; widen `Grant.subjectType` to `'user' | 'team'` and `subjectsOf(state, userId)` to return `[userId, ...teamIdsOf(userId)]`. `resolveGrant` already prefers `deny` among multiple matches, which is exactly the tie-break teams need. The exhaustive-switch rule makes the compiler list anywhere `subjectType` must be handled.
+- **Team grants** — add `Team` and `TeamMembership`; widen `Grant.subjectType` to `'user' | 'team'` and `subjectsOf(state, userId)` to return `[userId, ...teamIdsOf(userId)]`. `resolveGrant` already prefers `deny` among multiple matches, which is exactly the tie-break teams need. Two things in `access.ts` are already waiting for this: a save only ever replaces user-subject rows, so team rows survive it, and `isUserSubject` reads a `Record<GrantSubjectType, boolean>` rather than comparing against `"user"` — so widening the union is a missing key and a compile error there, instead of a filter that silently starts deleting team grants.
 - **Role hierarchy** — add entries to `ROLE_CAPABILITIES`. `guest` becomes `new Set([])`, `owner` becomes `new Set(['workspace:bypass', 'workspace:delete'])`. No new control flow, because there is none to add to.
 - **Field-level permissions** — widen `Capability` to include `'task:update:assignees'` and have `can()` fall back from specific to general. The drawer already renders field by field, so it can disable individual controls without restructuring.
 - **Multiple workspaces** — `canView` and `can` already take a `{ workspaceId, userId }` scope and already reject cross-workspace nodes. Adding a workspace means seeding a second workspace container, its memberships and a workspace switcher in the chrome.
@@ -695,6 +769,12 @@ export const DEFAULT_STATUS_TEMPLATE: readonly DefaultStatusTemplate[] =
 `defaultStatusName` is deliberately a second field rather than a reuse of `label`. The label names the _category_ in UI that groups by it — "Not started" — while this names the _status_ a list actually receives, "To do". Collapsing them puts "Not started" on a kanban column header.
 
 Deriving the set from `STATUS_CATEGORIES` rather than writing out three objects is what makes 3.3's minimum structural: a list cannot be short a category because the template is generated from the category table, and adding a fourth category gives every new list a column for it with no second edit. Both the seed fixtures and `containerSlice.create` read this one declaration, so "the default set" has exactly one definition — the alternative, which is what shipped first, had the three statuses written out once in `seed.ts` and nowhere else, and therefore no definition at all for a list created at runtime.
+
+### A container is created with its access, in one mutation
+
+Same argument as the status set below, and the same `apply`. `containerSlice.create` writes the container, its statuses when the registry says the type `holdsTasks`, and its grant rows when the registry says the type is `grantable` — all three inside one recipe, so the pipeline's snapshot/restore covers them together and a refused create leaves none of them.
+
+The failure this prevents is quieter than the missing-statuses one and worse. A second mutation for access would, on failure, leave a container that exists, appears in the sidebar, works perfectly — and is visible to a set of people nobody chose. There is no error state to notice and no board empty state to hint at it; the only symptom is someone eventually seeing something they should not. `containerSlice.test.ts` asserts a refused create against `domainSnapshot` for exactly this reason: a follow-up write passes every other assertion in that file and fails only that one.
 
 ### A list is created with its statuses, in one mutation
 
@@ -1553,6 +1633,7 @@ Vitest + jsdom + Testing Library, single-run via `npm run test`. `src/test/setup
 - `validation.test.ts` — title bounds, parent-type matrix, cyclic move rejection, subtask depth, status-set enforcement.
 - `config.test.ts` — the registries, including that `DEFAULT_STATUS_TEMPLATE` names "To do"/"In progress"/"Done", covers every category exactly once in category order, and matches `MIN_STATUSES_PER_LIST`. Asserted against the derived template rather than against three literals, so a new category fails the build until the minimum is reconsidered.
 - `position.test.ts` — insert at head/middle/tail, and rebalance when the gap collapses.
+- `access.test.ts` — the `ContainerAccess` ⇄ `Grant[]` translation, asserted as a **round-trip property** over every mode and selection rather than as two mappings. Two mappings asserted separately both pass while disagreeing with each other, which for a permissions mapping is the one failure mode that matters. Alongside it: a bypassing role never appears in a list or a written row; `governedMemberIds` follows an injected capability table rather than the name `admin`; a grant on another resource or another subject type survives a save; and `defaultAccessFor` is restricted for every grantable type and open for the one that is not.
 
 **Extensibility tests** — these are what make the forward-compatibility claims verifiable rather than aspirational (18.9–18.11):
 
@@ -1567,6 +1648,8 @@ Vitest + jsdom + Testing Library, single-run via `npm run test`. `src/test/setup
 - `taskSlice.test.ts` — cross-list move with status remapping, subtask cascade on delete, `updatedAt` bumping.
 - `rollback.test.ts` — `failNext` on a drag restores pre-drag state exactly (18.6).
 - `containerSlice.test.ts` — CRUD, archive cascade, and the default status set of 3.3.1 from three angles: a new list has the three statuses in category order and accepts a task; a folder gets none; a refused create leaves neither the container nor a status. The third is the one that pins "same mutation" — a follow-up write would pass the other two and fail only that one, which is why it is asserted against `domainSnapshot` rather than against the status count alone.
+
+**Access through the UI** (`views/sidebar/access.test.tsx`) — the two moments a person actually goes through, asserted by switching user and reading the tree rather than by inspecting grant rows. The grant arithmetic is already covered above; what this adds is that the dialog reaches it. Six cases: the create form opens restricted and says so in words; a space created with Carol ticked is visible to Carol and not to Bob; an admin's row is ticked, disabled and captioned; revoking Bob on Backlog leaves Sprint 14 his; the seed's explicit deny on Infra can be lifted; and the access menu item is disabled with a reason for a member.
 
 **Component test** (18.7) — render `AppShell` inside `AppProviders` with a seeded store, then assert:
 
@@ -1604,6 +1687,9 @@ None of this is measured. Frame timing needs a browser and a profiler; what is c
 | Tasks hard-delete, containers archive             | The brief requires soft-delete for containers. Tombstoned tasks would complicate every selector for little demo value.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | No router                                         | Navigation state lives in `NavigationContext`. Deep links are a week-2 item; adding React Router later touches only that provider.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Markdown stored, not rendered                     | The description field keeps markdown source and renders as pre-wrapped text. A renderer is one dependency away but adds XSS surface for no evaluation gain.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Seeded containers stay mostly `public`            | The creation default changed; the fixtures did not. The seed's public/private/deny arrangement _is_ the Alice-vs-Bob demo and roughly eight tests assert the exact node sets it produces, so re-cutting it to match the new default would have traded a working demo for consistency nobody can see. "Everyone in the workspace" also remains a legitimate choice an admin can make — it is no longer the one made on their behalf.                                                                                                                                      |
+| Access is per user, not per team                  | `Grant.subjectType` is a one-member union and `subjectsOf` returns `[userId]`. The access list is shaped so teams are additive rather than a rewrite: a save preserves non-user rows, and `isUserSubject` is a `Record<GrantSubjectType, boolean>` lookup, so widening the union is a compile error rather than a filter that starts deleting team rows.                                                                                                                                                                                                                 |
+| No bulk or inherited access editing               | Access is set per container. There is no "apply to everything inside", and no view of who can see what across the tree. Both are real gaps for a workspace of any size; both are a different feature — the second is an audit screen — and neither changes the model, since inheritance already falls out of the ancestor walk.                                                                                                                                                                                                                                          |
 | Status set is not editable in the UI              | Per-list status sets are modeled, persisted and enforced, and a created list gets the default three automatically — but there is no editor to rename, add or remove them, which is out of the time budget. `statusSlice` carries `rename` and `reorder` for when it lands; there is no `create` or `delete`, because creation happens inside `containerSlice.create` and nothing may take a list below the minimum. Note the slice's own doc comment claimed these actions were tested and no test targeted them; that claim is now corrected rather than left standing. |
 | Only two stretch goals                            | Search and optimistic DnD rollback, per the brief's "at most two" and "ship a working MVP over half-finished stretch goals".                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Scope plumbing with one workspace                 | `{ workspaceId, userId }` threaded through selectors and guards is mild ceremony for a single-workspace app. It is the price of making the second workspace a seed change instead of a cross-cutting refactor, and 18.10 keeps it honest.                                                                                                                                                                                                                                                                                                                                |
