@@ -30,7 +30,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import type { Priority } from "@/config/priorities";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useNavigation } from "@/contexts/NavigationContext";
-import { useBoard } from "@/controllers/hooks/useBoard";
+import { useBoard, type TaskCardViewModel } from "@/controllers/hooks/useBoard";
 import { usePendingAction } from "@/controllers/hooks/usePendingAction";
 import { cn } from "@/lib/cn";
 
@@ -107,6 +107,38 @@ type AccessibilityOptions = NonNullable<
 >;
 
 /**
+ * Finds a card by id, searching subtasks as well as top-level cards.
+ *
+ * Needed because the board now edits subtasks in place. `column.tasks` holds
+ * only top-level cards — `selectBoardColumns` filters the rest out, since a
+ * subtask is not a column entry — so the flat `flatMap(...).find(...)` this
+ * replaced returned `undefined` for every subtask id. Both callers bail on
+ * `undefined`, which meant assigning someone to a subtask, or deleting one,
+ * silently did nothing.
+ */
+/** The overlay clone never shows subtasks, so it needs no expansion set. */
+const EMPTY_EXPANDED: ReadonlySet<string> = new Set();
+
+function findCard(
+  columns: readonly { readonly tasks: readonly TaskCardViewModel[] }[],
+  taskId: string,
+): TaskCardViewModel | undefined {
+  for (const column of columns) {
+    for (const task of column.tasks) {
+      if (task.id === taskId) return task;
+
+      const subtask = task.subtasks.find(
+        (candidate) => candidate.id === taskId,
+      );
+
+      if (subtask !== undefined) return subtask;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * The kanban board.
  *
  * Drag-and-drop is optimistic: the card lands under the cursor immediately and
@@ -133,6 +165,34 @@ export function KanbanBoard({ listId }: ViewProps) {
   const { run, isPending } = usePendingAction();
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  /*
+   * Which cards have their subtasks revealed.
+   *
+   * Board-level rather than per-card, for the same reason the list view keeps
+   * it view-level: a card unmounts and remounts when a drag moves it between
+   * columns, and local state would collapse the group under the user's
+   * pointer. A toggle re-renders the columns, which is cheap — the cards
+   * themselves are memoised and only the one whose `expandedIds` membership
+   * changed has anything new to render.
+   */
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  const toggleExpand = useCallback((taskId: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+
+      return next;
+    });
+  }, []);
 
   /*
    * The board's task order while a drag is live, in two places on purpose.
@@ -263,7 +323,15 @@ export function KanbanBoard({ listId }: ViewProps) {
     for (const column of board.columns) {
       map.set(column.statusId, column.name);
 
-      for (const task of column.tasks) map.set(task.id, task.title);
+      for (const task of column.tasks) {
+        map.set(task.id, task.title);
+
+        // Subtasks are not draggable, but they are announceable: a keyboard
+        // drag of a parent names the group the user is moving.
+        for (const subtask of task.subtasks) {
+          map.set(subtask.id, subtask.title);
+        }
+      }
     }
 
     names.current = map;
@@ -498,9 +566,7 @@ export function KanbanBoard({ listId }: ViewProps) {
   /** Toggling one assignee without disturbing the rest of the list. */
   const handleToggleAssignee = useCallback(
     (taskId: string, userId: string) => {
-      const task = board.columns
-        .flatMap((column) => column.tasks)
-        .find((candidate) => candidate.id === taskId);
+      const task = findCard(board.columns, taskId);
 
       if (!task) return;
 
@@ -521,9 +587,7 @@ export function KanbanBoard({ listId }: ViewProps) {
   const handleDelete = useCallback(
     (taskId: string) => {
       void (async () => {
-        const task = board.columns
-          .flatMap((column) => column.tasks)
-          .find((candidate) => candidate.id === taskId);
+        const task = findCard(board.columns, taskId);
 
         if (!task) return;
 
@@ -642,6 +706,8 @@ export function KanbanBoard({ listId }: ViewProps) {
               moveTargets={board.moveTargets}
               members={board.members}
               isPending={isPending}
+              expandedIds={expandedIds}
+              onToggleExpand={toggleExpand}
               onOpen={openTask}
               onRename={handleRename}
               onToggleComplete={handleToggleComplete}
@@ -696,6 +762,9 @@ export function KanbanBoard({ listId }: ViewProps) {
             index={0}
             columnLength={1}
             isOverlay
+            isPending={() => false}
+            expandedIds={EMPTY_EXPANDED}
+            onToggleExpand={() => undefined}
             onRename={() => undefined}
             onOpen={() => undefined}
             onToggleComplete={() => undefined}

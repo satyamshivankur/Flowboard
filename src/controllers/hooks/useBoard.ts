@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import type { AvatarColorToken } from "@/config/avatars";
+import { MAX_TASK_DEPTH } from "@/config/limits";
 import { PRIORITY_CONFIG, type Priority } from "@/config/priorities";
 import type { StatusColorToken } from "@/config/statusCategories";
 import { dueDateTone, type DueDateTone } from "@/lib/date";
@@ -41,6 +42,18 @@ export interface TaskCardViewModel {
   readonly dueDate: string | null;
   readonly dueDateTone: DueDateTone;
   readonly assignees: readonly AssigneeViewModel[];
+  /**
+   * This task's children, as full card view-models.
+   *
+   * Nested rather than counted, so the board can render and edit a subtask
+   * with the same controls as its parent instead of sending the user to the
+   * drawer to change one field — which is what the list view's table has
+   * always done (Requirement 5.7, 15.10).
+   *
+   * `subtaskCount` and `completedSubtaskCount` are derived from this array, so
+   * the badge and the rows it summarises cannot disagree.
+   */
+  readonly subtasks: readonly TaskCardViewModel[];
   readonly subtaskCount: number;
   readonly completedSubtaskCount: number;
   readonly isComplete: boolean;
@@ -124,13 +137,33 @@ export function buildTaskCard(
     statusId: string;
   },
   now: string,
+  /** Recursion depth. Callers start at 0; only this function passes more. */
+  depth = 0,
 ): TaskCardViewModel {
   const priority = PRIORITY_CONFIG[task.priority];
-  const subtasks = subtasksOf(state, task.id);
 
-  const completed = subtasks.filter(
-    (subtask) => state.statuses[subtask.statusId]?.category === "done",
-  ).length;
+  /*
+   * Children are built recursively, which terminates on its own because the
+   * Model caps nesting at `MAX_TASK_DEPTH` — a subtask has no subtasks, so
+   * `subtasksOf` returns nothing one level down.
+   *
+   * The explicit guard is belt and braces rather than decoration: raising that
+   * cap should deepen this tree deliberately, not hand it an unbounded one and
+   * blow the stack on the first malformed parent chain.
+   */
+  const subtasks =
+    depth >= MAX_TASK_DEPTH
+      ? []
+      : subtasksOf(state, task.id).map((subtask) =>
+          buildTaskCard(state, subtask, now, depth + 1),
+        );
+
+  /*
+   * Counted off the built children rather than re-derived from `statuses`.
+   * The badge and the rows it summarises now read the same `isComplete` the
+   * child card renders, so "1 of 2" cannot disagree with the ticks beneath it.
+   */
+  const completed = subtasks.filter((subtask) => subtask.isComplete).length;
 
   return {
     id: task.id,
@@ -152,6 +185,7 @@ export function buildTaskCard(
         .join(""),
       avatarToken: user.avatarToken,
     })),
+    subtasks,
     subtaskCount: subtasks.length,
     completedSubtaskCount: completed,
     isComplete: state.statuses[task.statusId]?.category === "done",

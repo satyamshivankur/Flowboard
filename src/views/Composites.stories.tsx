@@ -78,6 +78,9 @@ const noop = () => undefined;
 /** Nothing is in flight in a story, unless a story says otherwise. */
 const nothingPending = () => false;
 
+/** No subtasks revealed, unless a story says otherwise. */
+const NOTHING_EXPANDED: ReadonlySet<string> = new Set();
+
 const CARD_HANDLERS = {
   onOpen: noop,
   onRename: noop,
@@ -156,6 +159,9 @@ export const Cards: Story = {
                   members={MEMBERS}
                   index={0}
                   columnLength={2}
+                  isPending={nothingPending}
+                  expandedIds={NOTHING_EXPANDED}
+                  onToggleExpand={noop}
                   {...CARD_HANDLERS}
                 />
               </div>
@@ -183,6 +189,9 @@ export const CardOverlay: Story = {
           members={MEMBERS}
           index={0}
           columnLength={2}
+          isPending={nothingPending}
+          expandedIds={NOTHING_EXPANDED}
+          onToggleExpand={noop}
           isOverlay
           {...CARD_HANDLERS}
         />
@@ -207,7 +216,9 @@ export const CardPending: Story = {
           members={MEMBERS}
           index={0}
           columnLength={2}
-          isPending
+          isPending={() => true}
+          expandedIds={NOTHING_EXPANDED}
+          onToggleExpand={noop}
           {...CARD_HANDLERS}
         />
       </div>
@@ -232,6 +243,9 @@ export const CardReadOnly: Story = {
           members={MEMBERS}
           index={0}
           columnLength={1}
+          isPending={nothingPending}
+          expandedIds={NOTHING_EXPANDED}
+          onToggleExpand={noop}
           {...CARD_HANDLERS}
         />
       </div>
@@ -261,6 +275,8 @@ export const Columns: Story = {
             members={MEMBERS}
             isDragOver={false}
             isPending={nothingPending}
+            expandedIds={NOTHING_EXPANDED}
+            onToggleExpand={noop}
             onReorderInColumn={noop}
             onCreate={noop}
             {...CARD_HANDLERS}
@@ -284,6 +300,8 @@ export const Columns: Story = {
             members={MEMBERS}
             isDragOver
             isPending={nothingPending}
+            expandedIds={NOTHING_EXPANDED}
+            onToggleExpand={noop}
             onReorderInColumn={noop}
             onCreate={noop}
             {...CARD_HANDLERS}
@@ -305,6 +323,8 @@ export const Columns: Story = {
             members={MEMBERS}
             isDragOver={false}
             isPending={nothingPending}
+            expandedIds={NOTHING_EXPANDED}
+            onToggleExpand={noop}
             onReorderInColumn={noop}
             onCreate={noop}
             {...CARD_HANDLERS}

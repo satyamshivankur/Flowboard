@@ -4,6 +4,7 @@ import {
   ArrowUp,
   CalendarClock,
   CalendarOff,
+  ChevronRight,
   Copy,
   CornerUpRight,
   FileText,
@@ -81,8 +82,18 @@ export interface TaskCardProps {
   readonly columnLength: number;
   /** True for the floating clone that follows the cursor. */
   readonly isOverlay?: boolean;
-  /** A mutation on this task is in flight (Requirement 14.7). */
-  readonly isPending?: boolean;
+  /**
+   * Whether a mutation on a *given* task is in flight (Requirement 14.7).
+   *
+   * A predicate rather than a boolean, because this card now renders its
+   * subtasks too and each of them dims independently — ticking a subtask must
+   * not subdue its parent. Same signature the list view's table takes, so the
+   * two surfaces key pending state the same way.
+   */
+  readonly isPending: (taskId: string) => boolean;
+  /** Which parents have their subtasks revealed (Requirement 5.7). */
+  readonly expandedIds: ReadonlySet<string>;
+  readonly onToggleExpand: (taskId: string) => void;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
   readonly onRename: (taskId: string, title: string) => void;
@@ -119,6 +130,23 @@ export interface TaskCardProps {
  */
 export const TaskCard = memo(TaskCardImpl);
 
+/**
+ * The sortable wrapper, and the only part of a card that drags.
+ *
+ * Three elements are in play and the split between them is deliberate:
+ *
+ *   - The **wrapper** is the sortable element. Expanded subtasks live inside
+ *     it, so dragging a parent takes its visible children along — which is the
+ *     same invariant the Model enforces, where a subtask follows its parent
+ *     between lists (Requirement 2.7).
+ *   - The parent **card** is the drag *handle*. Without that split, pressing a
+ *     subtask would start dragging the parent, and the accessibility plugin
+ *     would put `tabindex` and `aria-roledescription` on a wrapper that is not
+ *     the thing a user picks up.
+ *   - Each **body** is one card's presentation and editing, shared by the
+ *     parent and its subtasks so there is literally one set of controls rather
+ *     than two that drift.
+ */
 function TaskCardImpl({
   task,
   columnId,
@@ -131,7 +159,9 @@ function TaskCardImpl({
   index,
   columnLength,
   isOverlay = false,
-  isPending = false,
+  isPending,
+  expandedIds,
+  onToggleExpand,
   onOpen,
   onToggleComplete,
   onRename,
@@ -156,7 +186,7 @@ function TaskCardImpl({
    * `accept` is narrowed to tasks so a card is never a drop target for
    * anything else, and `type` is what the columns accept in turn.
    */
-  const { ref, isDragSource } = useSortable({
+  const { ref, handleRef, isDragSource } = useSortable({
     id: task.id,
     index,
     group: columnId,
@@ -169,6 +199,166 @@ function TaskCardImpl({
      */
     disabled: !canEdit || isOverlay,
   });
+
+  const shared = {
+    now,
+    canEdit,
+    readOnlyReason,
+    statuses,
+    members,
+    onOpen,
+    onToggleComplete,
+    onRename,
+    onSetPriority,
+    onSetStatus,
+    onToggleAssignee,
+    onSetDueDate,
+    onDelete,
+  };
+
+  /*
+   * The clone deliberately carries no subtasks. It is a thing being dragged,
+   * not a thing being read, and nesting a parent's children into it would
+   * double its height mid-flight for no information the user needs while the
+   * pointer is down.
+   */
+  const subtasks = isOverlay ? [] : task.subtasks;
+  const isExpanded = expandedIds.has(task.id);
+
+  return (
+    <div ref={ref} className="flex flex-col gap-2">
+      <TaskCardBody
+        {...shared}
+        task={task}
+        handleRef={handleRef}
+        dragging={isDragSource}
+        isOverlay={isOverlay}
+        isPending={isPending(task.id)}
+        moveTargets={moveTargets}
+        reorder={{ index, columnLength, onReorder }}
+        onDuplicate={onDuplicate}
+        onMoveToList={onMoveToList}
+        {...(subtasks.length === 0
+          ? {}
+          : {
+              isExpanded,
+              onToggleExpand: () => {
+                onToggleExpand(task.id);
+              },
+            })}
+      />
+
+      {/*
+        Subtasks, indented and rendered with the same body as their parent —
+        so a status, priority, due date or assignee change on a subtask is the
+        same gesture in the same place, rather than a trip to the drawer
+        (Requirement 5.7, 15.10).
+      */}
+      {isExpanded && subtasks.length > 0 && (
+        <ul className="ml-4 flex flex-col gap-2 border-l border-border pl-2">
+          {subtasks.map((subtask) => (
+            <li key={subtask.id}>
+              <TaskCardBody
+                {...shared}
+                task={subtask}
+                isSubtask
+                isPending={isPending(subtask.id)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+interface TaskCardBodyProps {
+  readonly task: TaskCardViewModel;
+  readonly now: string;
+  readonly canEdit: boolean;
+  readonly readOnlyReason?: string | undefined;
+  readonly statuses: readonly TaskCardStatusOption[];
+  readonly members: readonly AvatarGroupMember[];
+  readonly isPending: boolean;
+  /** Set on a subtask body: indents it and narrows its menu. */
+  readonly isSubtask?: boolean;
+  readonly isOverlay?: boolean;
+  readonly dragging?: boolean;
+  /** dnd-kit's handle ref. Only the parent body is the drag activator. */
+  readonly handleRef?: (element: Element | null) => void;
+  /** Absent on a subtask, which cannot be moved between lists or columns. */
+  readonly moveTargets?: readonly { id: string; name: string }[];
+  readonly reorder?:
+    | {
+        readonly index: number;
+        readonly columnLength: number;
+        readonly onReorder: (taskId: string, toIndex: number) => void;
+      }
+    | undefined;
+  /** Absent when this task has no children to reveal. */
+  readonly isExpanded?: boolean;
+  readonly onToggleExpand?: (() => void) | undefined;
+  readonly onOpen: (taskId: string) => void;
+  readonly onToggleComplete: (taskId: string) => void;
+  readonly onRename: (taskId: string, title: string) => void;
+  readonly onSetPriority: (taskId: string, priority: string) => void;
+  readonly onSetStatus: (taskId: string, statusId: string) => void;
+  readonly onToggleAssignee: (taskId: string, userId: string) => void;
+  readonly onSetDueDate: (taskId: string, dueDate: string | null) => void;
+  readonly onDuplicate?: ((taskId: string) => void) | undefined;
+  readonly onMoveToList?:
+    | ((taskId: string, listId: string) => void)
+    | undefined;
+  readonly onDelete: (taskId: string) => void;
+}
+
+/**
+ * One card's presentation and editing, parent or subtask.
+ *
+ * What a subtask does **not** get is a short, specific list, and each omission
+ * is a Controller guard rather than a style choice:
+ *
+ *   - *Move to list* — `moveToList` rejects a subtask outright with "Move the
+ *     parent task instead", because a subtask must stay in its parent's list.
+ *   - *Move up / move down* — `move` computes position against
+ *     `columnTasks`, which filters to `parentTaskId === null`, so a subtask has
+ *     no column position for an index to mean anything about.
+ *   - *Duplicate* — valid, but it would land the copy at a position derived
+ *     from that same top-level list. Omitted rather than shipped subtly wrong.
+ *
+ * Everything else — rename, status, priority, due date, assignees, complete,
+ * delete — is legal on a subtask and present here, which is what makes this
+ * the same editing surface as the parent rather than a lookalike.
+ */
+function TaskCardBody({
+  task,
+  now,
+  canEdit,
+  readOnlyReason,
+  statuses,
+  members,
+  isPending,
+  isSubtask = false,
+  isOverlay = false,
+  dragging = false,
+  handleRef,
+  moveTargets = [],
+  reorder,
+  isExpanded = false,
+  onToggleExpand,
+  onOpen,
+  onToggleComplete,
+  onRename,
+  onSetPriority,
+  onSetStatus,
+  onToggleAssignee,
+  onSetDueDate,
+  onDuplicate,
+  onMoveToList,
+  onDelete,
+}: TaskCardBodyProps) {
+  const index = reorder?.index ?? 0;
+  const columnLength = reorder?.columnLength ?? 1;
 
   /*
    * Split in two on purpose.
@@ -267,19 +457,38 @@ function TaskCardImpl({
           ]),
     ];
 
-    const listItems: MenuItemSpec[] = moveTargets
-      .slice(0, MAX_MENU_LISTS)
-      .map((list, position) => ({
-        id: `list-${list.id}`,
-        label: `Move to "${list.name}"`,
-        icon: CornerUpRight,
-        disabled: !canEdit,
-        disabledReason: readOnlyReason,
-        separatorBefore: position === 0,
-        onSelect: () => {
-          onMoveToList(task.id, list.id);
-        },
-      }));
+    /* Both of these are refused for a subtask — see this component's note. */
+    const listItems: MenuItemSpec[] =
+      isSubtask || onMoveToList === undefined
+        ? []
+        : moveTargets.slice(0, MAX_MENU_LISTS).map((list, position) => ({
+            id: `list-${list.id}`,
+            label: `Move to "${list.name}"`,
+            icon: CornerUpRight,
+            disabled: !canEdit,
+            disabledReason: readOnlyReason,
+            separatorBefore: position === 0,
+            onSelect: () => {
+              onMoveToList(task.id, list.id);
+            },
+          }));
+
+    const duplicateItems: MenuItemSpec[] =
+      isSubtask || onDuplicate === undefined
+        ? []
+        : [
+            {
+              id: "duplicate",
+              label: "Duplicate",
+              icon: Copy,
+              disabled: !canEdit,
+              disabledReason: readOnlyReason,
+              separatorBefore: true,
+              onSelect: () => {
+                onDuplicate(task.id);
+              },
+            },
+          ];
 
     return [
       {
@@ -298,24 +507,15 @@ function TaskCardImpl({
       ...assigneeItems,
       ...dueDateItems,
       ...listItems,
-      {
-        id: "duplicate",
-        label: "Duplicate",
-        icon: Copy,
-        disabled: !canEdit,
-        disabledReason: readOnlyReason,
-        separatorBefore: true,
-        onSelect: () => {
-          onDuplicate(task.id);
-        },
-      },
+      ...duplicateItems,
       {
         id: "delete",
-        label: "Delete task",
+        label: isSubtask ? "Delete subtask" : "Delete task",
         icon: Trash2,
         tone: "danger",
         disabled: !canEdit,
         disabledReason: readOnlyReason,
+        separatorBefore: duplicateItems.length === 0,
         onSelect: () => {
           onDelete(task.id);
         },
@@ -329,6 +529,7 @@ function TaskCardImpl({
     members,
     canEdit,
     readOnlyReason,
+    isSubtask,
     onOpen,
     onSetStatus,
     onSetPriority,
@@ -348,6 +549,11 @@ function TaskCardImpl({
    * which is why moving down targets `index + 1` rather than `index + 2`.
    */
   const items = useMemo((): MenuItemSpec[] => {
+    // A subtask has no column position, so there is no index to move it to.
+    if (reorder === undefined || isSubtask) return stableItems;
+
+    const { onReorder } = reorder;
+
     const reorderItems: MenuItemSpec[] = [
       {
         id: "move-up",
@@ -390,7 +596,8 @@ function TaskCardImpl({
     columnLength,
     canEdit,
     readOnlyReason,
-    onReorder,
+    isSubtask,
+    reorder,
   ]);
 
   /*
@@ -444,7 +651,11 @@ function TaskCardImpl({
        * per-frame transform straight to this element outside of React, which
        * is precisely why a drag no longer re-renders the board.
        */
-      ref={ref}
+      /*
+       * Only a parent body is the drag handle; a subtask has no ref to take,
+       * which is why this is conditional rather than always spread.
+       */
+      {...(handleRef === undefined ? {} : { ref: handleRef })}
       interactive
       elevated
       /*
@@ -453,16 +664,20 @@ function TaskCardImpl({
        * full opacity for a frame while the clone is still flying into place
        * (Requirement 15.6).
        */
-      dragging={isDragSource}
+      dragging={dragging}
       overlay={isOverlay}
       pending={isPending}
-      padding="md"
+      /* Denser, so a parent and its children read as a group not a stack. */
+      padding={isSubtask ? "sm" : "md"}
       /*
-       * `role`, `tabIndex`, `aria-roledescription` and `aria-describedby` are
-       * applied to this element by dnd-kit's accessibility plugin, which is
-       * why they are not spread here. `aria-label` is ours, since dnd-kit
-       * cannot know the task's title (Requirement 15.5).
+       * On a parent, `role`, `tabIndex`, `aria-roledescription` and
+       * `aria-describedby` are applied to this element by dnd-kit's
+       * accessibility plugin — it is the drag handle — which is why they are
+       * not spread here. A subtask is not draggable, so it gets the two it
+       * needs to stay keyboard-reachable and Enter-openable itself
+       * (Requirement 15.5, 17.1).
        */
+      {...(isSubtask ? { role: "button", tabIndex: 0 } : {})}
       aria-label={task.title}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
@@ -549,7 +764,62 @@ function TaskCardImpl({
           }}
         />
 
-        {task.subtaskCount > 0 && (
+        {/*
+          The count *is* the disclosure.
+
+          It used to be an inert chip with a tooltip, which told you a card had
+          two subtasks and then gave you nowhere to go — the drawer was the
+          only way to see or change one. Making the same chip the toggle adds
+          the affordance without adding an element, and it keeps the progress
+          reading visible whether the children are open or shut.
+
+          Labelled to match the list view's table exactly, so "expand the
+          subtasks of X" is one phrase across both surfaces.
+        */}
+        {task.subtaskCount > 0 && onToggleExpand !== undefined && (
+          <Tooltip
+            content={`${String(task.completedSubtaskCount)} of ${String(task.subtaskCount)} subtasks complete`}
+          >
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              aria-label={
+                isExpanded
+                  ? `Collapse subtasks of ${task.title}`
+                  : `Expand subtasks of ${task.title}`
+              }
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleExpand();
+              }}
+              className={cn(
+                "flex items-center gap-0.5 rounded text-xs tabular-nums",
+                // A 1rem target is not tappable; the board is touch-first.
+                "coarse-pointer:min-h-touch coarse-pointer:px-1",
+                "text-ink-400 can-hover:hover:text-ink-900",
+                "focus-visible:outline-brand-600 focus-visible:outline-2 focus-visible:outline-offset-1",
+              )}
+            >
+              <ChevronRight
+                className={cn(
+                  "size-icon-sm transition-transform motion-reduce:transition-none",
+                  isExpanded && "rotate-90",
+                )}
+                strokeWidth={2}
+                aria-hidden
+              />
+              <ListTree
+                className="size-icon-sm"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              {task.completedSubtaskCount}/{task.subtaskCount}
+            </button>
+          </Tooltip>
+        )}
+
+        {/* No toggle to offer: a subtask cannot itself have children. */}
+        {task.subtaskCount > 0 && onToggleExpand === undefined && (
           <Tooltip
             content={`${String(task.completedSubtaskCount)} of ${String(task.subtaskCount)} subtasks complete`}
           >

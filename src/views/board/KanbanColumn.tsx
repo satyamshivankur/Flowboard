@@ -38,6 +38,15 @@ export interface KanbanColumnProps {
   readonly isDragOver: boolean;
   /** Whether a mutation on a given task is in flight (Requirement 14.7). */
   readonly isPending: (taskId: string) => boolean;
+  /**
+   * Which cards have their subtasks revealed, and the toggle.
+   *
+   * Held by the board rather than by each card, which is what lets an
+   * expansion survive a drag across columns — the card remounts, the set does
+   * not. Same arrangement the list view uses for its table rows.
+   */
+  readonly expandedIds: ReadonlySet<string>;
+  readonly onToggleExpand: (taskId: string) => void;
   readonly onOpen: (taskId: string) => void;
   readonly onToggleComplete: (taskId: string) => void;
   readonly onRename: (taskId: string, title: string) => void;
@@ -87,6 +96,8 @@ function KanbanColumnImpl({
   members,
   isDragOver,
   isPending,
+  expandedIds,
+  onToggleExpand,
   onOpen,
   onToggleComplete,
   onRename,
@@ -202,7 +213,9 @@ function KanbanColumnImpl({
             members={members}
             index={index}
             columnLength={tasks.length}
-            isPending={isPending(task.id)}
+            isPending={isPending}
+            expandedIds={expandedIds}
+            onToggleExpand={onToggleExpand}
             onOpen={onOpen}
             onToggleComplete={onToggleComplete}
             onRename={onRename}

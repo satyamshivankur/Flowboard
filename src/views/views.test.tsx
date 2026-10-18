@@ -57,8 +57,16 @@ function card(title: string) {
  * they carry the same label by design.
  */
 function overlayCard(): Element | null {
+  /*
+   * Queried by label rather than taken as the overlay's first child: the card
+   * root is now a sortable wrapper that also holds any expanded subtasks, so
+   * the labelled card is nested one level in. Asking for the label is what we
+   * actually mean, and it does not care about the wrapper's existence.
+   */
   return (
-    document.querySelector("[data-dnd-overlay]")?.firstElementChild ?? null
+    document.querySelector("[data-dnd-overlay] [aria-label]") ??
+    document.querySelector("[data-dnd-overlay]")?.firstElementChild ??
+    null
   );
 }
 
@@ -66,6 +74,31 @@ async function waitForBoard() {
   await waitFor(() => {
     expect(card(BACKLOG.first)).toBeInTheDocument();
   });
+}
+
+/** Navigates to Sprint 14, the seeded list holding a task with subtasks. */
+async function selectSprint14(user: ReturnType<typeof userEvent.setup>) {
+  const tree = screen.getByRole("tree", { name: "Workspace" });
+
+  for (const item of within(tree).queryAllByRole("treeitem", {
+    expanded: false,
+  })) {
+    const toggle = item.querySelector("button");
+
+    if (toggle) await user.click(toggle);
+  }
+
+  await user.click(within(tree).getByText("Sprint 14"));
+}
+
+/** Opens a card's overflow menu and returns it. */
+async function openMenuFor(
+  user: ReturnType<typeof userEvent.setup>,
+  title: string,
+) {
+  await user.click(screen.getByLabelText(`Actions for ${title}`));
+
+  return screen.findByRole("menu");
 }
 
 async function switchToList(user: ReturnType<typeof userEvent.setup>) {
@@ -201,6 +234,90 @@ describe("board", () => {
 
     await waitFor(() => {
       expect(overlayCard()).toBeNull();
+    });
+  });
+
+  /*
+   * Subtasks on the board, which until recently were a number and nothing
+   * else: the card showed "1/2" and the only way to see or change a subtask
+   * was the drawer. The list view's table has always nested and edited them in
+   * place, so this asserts the board now does the same (Requirement 5.7,
+   * 15.10).
+   */
+  it("reveals and edits subtasks under their parent card", async () => {
+    const user = userEvent.setup();
+
+    renderShell();
+    await waitForBoard();
+
+    await selectSprint14(user);
+
+    // The count chip is the disclosure, and starts collapsed.
+    const disclosure = await waitFor(() =>
+      screen.getByRole("button", { name: /^Expand subtasks of/ }),
+    );
+
+    const parentTitle = /^Expand subtasks of (.+)$/.exec(
+      disclosure.getAttribute("aria-label") ?? "",
+    )?.[1];
+
+    expect(parentTitle).toBeDefined();
+    expect(disclosure).toHaveTextContent("1/2");
+
+    const subtaskTitle =
+      useStore.getState().tasks["t-009-b"]?.title ?? "missing";
+
+    expect(screen.queryByLabelText(subtaskTitle)).not.toBeInTheDocument();
+
+    await user.click(disclosure);
+
+    // Revealed, and carrying the parent's controls rather than a summary.
+    const subtask = await waitFor(() => screen.getByLabelText(subtaskTitle));
+
+    for (const label of [
+      `Mark "${subtaskTitle}" complete`,
+      `Actions for ${subtaskTitle}`,
+    ]) {
+      expect(within(subtask).getByLabelText(label)).toBeInTheDocument();
+    }
+
+    /*
+     * The three the Controller refuses for a subtask: `moveToList` rejects it
+     * outright, and `move` has no column position to reorder it within. A
+     * menu offering them would be offering a guaranteed error.
+     */
+    const menu = await openMenuFor(user, subtaskTitle);
+
+    expect(
+      within(menu).getByRole("menuitem", { name: "Delete subtask" }),
+    ).toBeInTheDocument();
+
+    for (const name of [/^Move up/, /^Move down/, /^Duplicate/, /^Move to "/]) {
+      expect(
+        within(menu).queryByRole("menuitem", { name }),
+      ).not.toBeInTheDocument();
+    }
+
+    await user.keyboard("{Escape}");
+
+    // And an edit on a subtask writes through to the subtask, not the parent.
+    await user.click(
+      within(subtask).getByLabelText(`Mark "${subtaskTitle}" complete`),
+    );
+
+    await waitFor(() => {
+      const statusId = useStore.getState().tasks["t-009-b"]?.statusId ?? "";
+
+      expect(useStore.getState().statuses[statusId]?.category).toBe("done");
+    });
+
+    // The badge counts the children it now renders, so the two agree.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: `Collapse subtasks of ${String(parentTitle)}`,
+        }),
+      ).toHaveTextContent("2/2");
     });
   });
 });

@@ -41,6 +41,7 @@ function task(id: string, title: string): TaskCardViewModel {
     dueDate: null,
     dueDateTone: "none",
     assignees: [],
+    subtasks: [],
     subtaskCount: 0,
     completedSubtaskCount: 0,
     isComplete: false,
@@ -73,6 +74,8 @@ function renderColumn({
         members={MEMBERS}
         isDragOver={isDragOver}
         isPending={() => false}
+        expandedIds={new Set()}
+        onToggleExpand={noop}
         onOpen={noop}
         onToggleComplete={noop}
         onRename={noop}
