@@ -40,7 +40,7 @@ function SidebarBody({ onAfterSelect }: { onAfterSelect?: () => void }) {
       >
         {!collapsed && (
           <span className="truncate text-xs font-semibold uppercase tracking-wide text-ink-400">
-            Workspace
+            Flowboard
           </span>
         )}
 
