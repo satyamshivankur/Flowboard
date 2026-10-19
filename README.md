@@ -1,5 +1,7 @@
 # Flowboard
 
+> **TL;DR — the whole document in five lines.** A ClickUp-style task app with no backend: one in-memory store stands in for the API, with simulated network latency and a switch to force failures, so the loading, error and rollback states are real rather than mocked. Four things are worth a reviewer's attention — a **permission model** you can demo in one click by switching user, a strict **MVC separation that ESLint enforces** rather than merely documents, a **design system** of 35 primitives reviewable in Storybook, and a **test suite split by what each layer can actually prove** (logic in jsdom, anything needing real layout in a browser). The **trade-offs section** is the honest list of what was cut and what is still open. Every section below opens with its own TL;DR.
+
 A frontend-only project-management app for a single team — `workspace → space → folder → list → task`, on a kanban board and in a list view, with container-level permissions and an in-app user switcher.
 
 There is no backend. A typed, normalized in-memory store seeded from deterministic fixtures stands in for the API and database, wrapped in a transport shim that adds latency and injectable failures — so the loading, error and rollback paths in the UI are real rather than theoretical.
@@ -9,6 +11,8 @@ There is no backend. A typed, normalized in-memory store seeded from determinist
 ---
 
 ## Running it
+
+> **TL;DR** — `npm install && npm run dev`, and that is all you need. `npm run verify` runs lint, typecheck and tests together. The **30-second tour** at the end of this section is the fastest way to see the two things that make the app more than a CRUD demo: a drag that fails and rolls back on command, and the permission model changing what a user can see.
 
 ```bash
 npm install
@@ -46,6 +50,8 @@ Step 4 is the permission model; step 3 is the transport shim. Neither needs setu
 ---
 
 ## Architecture
+
+> **TL;DR** — Three layers with one job each: **Model** is pure logic with no React in it, **Controller** owns the store and every write, **View** is components that take props and emit callbacks. Data flows one way only, and every single write takes the same path — validate, check permission, apply, return a result — so validation and permission each have exactly one home rather than being scattered across call sites. The layer boundaries are **ESLint rules**, so breaking the architecture breaks the build instead of quietly accumulating.
 
 An explicit MVC separation, enforced by lint rather than by convention.
 
@@ -153,6 +159,8 @@ Also enforced: no `export default` (21.13), no nested ternaries (21.14), exhaust
 
 ## Data model
 
+> **TL;DR** — One `Container` type covers every level of the tree (workspace, space, folder, list), and which level may hold which is **config data rather than code**, so adding a level is one registry entry. State is flat id-keyed maps so every write is a single lookup. Ordering is a **fractional `position` number**, so reordering writes one row instead of renumbering the whole group. Containers **archive** (reversible, cascades); tasks **delete** (with the subtask count stated first). Seed data uses fixed ids and a fixed clock so tests and assertions are stable run to run.
+
 ```mermaid
 erDiagram
     USER ||--o{ GRANT : "granted to"
@@ -222,6 +230,8 @@ Workspace "Acme"                                    public
 ---
 
 ## Permissions
+
+> **TL;DR** — "Can this person see this?" is answered in **one pure file**. Walk from the workspace down to the thing being asked about: `private` closes it, an explicit grant overrides what it inherited, and the **nearest grant wins**. Admins skip the grant walk but **not** the structural checks — nobody, admin included, can see something archived, missing, or belonging to another workspace. What you can _do_ is a lookup table rather than role comparisons, so adding a role is one table entry: members may edit tasks in lists they can see, and nothing structural. A newly created space or list starts **restricted, not public** — who can see it is a question the create form asks.
 
 `src/model/permissions.ts` is pure and synchronous, and is the only place visibility is decided.
 
@@ -299,6 +309,8 @@ Each of these is a change to data or to one function body. None touches a call s
 
 ## The simulated data layer
 
+> **TL;DR** — There is no server, so a thin shim fakes one: every write waits 120–380ms, and the **dev panel** (the flask icon in the top bar) can force the next operation to fail. That is what makes the spinners, error toasts and drag-rollback real paths rather than decoration. A failed drag restores the **exact** previous order, including the underlying position numbers — not just what you can see. State survives a reload through `localStorage`, behind a swappable adapter so replacing it with a real API is a new file rather than a rewrite.
+
 ### Latency and injectable failures
 
 `src/adapters/transport/simulated.ts` implements a `Transport` interface. Controller actions call `transport.run(...)` and never reference latency or failure rates themselves, so swapping in an HTTP client is a one-line change at store construction.
@@ -338,6 +350,8 @@ The save subscription reference-compares the top-level maps rather than deep-com
 ---
 
 ## Design system
+
+> **TL;DR** — 35 presentational building blocks in `src/components/ui`, each reviewable on its own in Storybook using the app's **real** design tokens rather than approximations. The three rules documented below are here because each one caused a bug that produced **no error at all**: the order classes are passed to `cn()`, never sizing a scrolling region with a percentage height, and never assembling a Tailwind class name by string interpolation. All three are now held by tests.
 
 35 primitives in `src/components/ui`, each pure, typed, accepting a last-merged `className`, and forwarding refs where the DOM element needs one. Variants are typed lookup records, never inline conditional strings.
 
@@ -396,6 +410,8 @@ Never `bg-${status.color}`. Tailwind resolves classes by scanning source text, s
 
 ## Mobile-first
 
+> **TL;DR** — The phone layout is the starting point and wider screens add to it, never the other way round. Breakpoints are declared in `rem`, so someone running a larger browser font gets the layout intended for a **narrower** screen — which is the right answer, because their usable reading width genuinely is smaller. Almost every responsive change is **plain CSS**; exactly one (the sidebar) needs a JavaScript breakpoint check, because it switches _behaviour_ — a focus-trapping sheet on a phone, a static panel on a laptop — and a media query cannot express that. Touch drag waits for a long press, so swiping still scrolls the board instead of picking up a card.
+
 Mobile-first in the strict sense: unprefixed utilities describe the phone layout and breakpoint prefixes add to it. No `max-*` variants, because a max-width utility is a desktop layout being walked backwards.
 
 ### Breakpoints
@@ -452,6 +468,8 @@ Other touch rules: no interaction depends on hover (affordances are gated behind
 
 ## Dimension units
 
+> **TL;DR** — Every size in the app is in `rem`, so the whole interface scales with the reader's browser font size instead of ignoring it. Four exceptions are permitted — hairline borders, shadows, pointer-movement thresholds and raster image sizes — and only the first three are actually used. Each is marked in the code, and `npm run lint:units` **fails the build** on any unmarked `px`, so this is enforced rather than merely intended.
+
 `rem` is the project's dimension unit. All spacing, padding, margin, width, height, min/max, font size, line height, border radius, gap, icon size and breakpoint values are `rem` — drawn from Tailwind's default scales, or from the named `--spacing-*` tokens in `src/index.css` so no component ships an arbitrary value like `w-[300px]`.
 
 ### The exceptions, and where they are
@@ -496,6 +514,8 @@ Two others existed and were retired, which is worth recording so neither comes b
 ---
 
 ## Testing
+
+> **TL;DR** — 671 unit tests and 94 browser tests, split by **what each layer can actually prove**. jsdom (the fake browser unit tests run in) loads no CSS and reports every element as zero-sized — which is how four separate drag bugs passed a fully green suite. So anything needing real layout, a real pointer or real storage lives in Playwright, running against the production build. Coverage is measured on the logic layers only, because counting lines of JSX a test happened to render measures nothing. Three of the browser spec files assert a **measured relationship** rather than a fixed number, and each was verified by deliberately re-breaking the bug it guards — a regression test nobody has seen fail is one nobody has tested.
 
 ```bash
 npm run test        # 671 unit tests, 35 files
@@ -546,6 +566,8 @@ The _measurable_ half is not manual any more: `responsive.spec.ts` asserts no ho
 
 ## Accessibility
 
+> **TL;DR** — Keyboard operation, focus trapping and screen-reader semantics are built in rather than retrofitted, and **colour contrast is a test** that reads the stylesheet and computes ratios, not a visual judgement — it caught seven failures that a palette review would not. Status and priority never rely on colour alone. **No WCAG conformance is claimed:** there was no screen-reader testing and no expert review, which are exactly the two things automation cannot substitute for.
+
 Keyboard operation, focus management and ARIA semantics are built in: tree semantics with expanded/selected state in the sidebar, real table semantics with `aria-sort` in the list view, focus trap and focus restore on the drawer and dialogs through Headless UI, dnd-kit live-region announcements that name the task and destination column rather than entity ids, a polite live region for toasts, and `2.75rem` minimum targets on coarse pointers.
 
 Contrast is a **test**, not a glance. `src/config/contrast.test.ts` parses `src/index.css`, computes WCAG relative luminance and asserts the ratios for the pairings the app actually renders — including each token as _text on its own tint_, which is the pairing a palette review does not look at. It found six failures when introduced, and one more when the kanban columns gained a status-coloured background; all were fixed by computing new values rather than re-picking by eye. Status and priority never rely on colour alone — each pairs its token with a label or an icon, asserted structurally.
@@ -555,6 +577,8 @@ Contrast is a **test**, not a glance. `src/config/contrast.test.ts` parses `src/
 ---
 
 ## Trade-offs and what was cut
+
+> **TL;DR** — The honest list, with reasoning rather than apology. The main things **not** built: a status editor, a router and deep links, team-based permissions, a workspace switcher, and automated visual-regression testing. Four items are still open, including a lint rule the project's own spec requires that **is not actually configured** — which is precisely why the dead code it would have caught accumulated unnoticed. The week-two list at the end is ordered by payoff, and starts with closing that gap.
 
 | Decision                                     | Reasoning                                                                                                                                                                                                                                                            |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -593,6 +617,8 @@ Contrast is a **test**, not a glance. `src/config/contrast.test.ts` parses `src/
 
 ## Stretch goals
 
+> **TL;DR** — Two, both actually finished, rather than four left half-done: **⌘K search** (filtered in the Model, so it cannot leak the title of something you have no permission to open) and **optimistic drag-and-drop with rollback** (try it via the dev panel's "fail next operation").
+
 Two attempted, per the brief's cap of two, both finished:
 
 1. **Client-side search** (⌘K) — debounced matching over title and description, scoped in the **Model** to the current user's visible tasks, grouped by list with the full ancestor path as the label, matches highlighted. Scoping belongs in the Model rather than the view: a search box matching on titles is the easiest way to leak the name of something a user cannot open, and no amount of UI care fixes an unscoped query. Tested from both directions — Bob gets nothing for a task on his denied list, and nothing for the private space.
@@ -603,6 +629,8 @@ Nothing else was added.
 ---
 
 ## Further reading
+
+> **TL;DR** — Read `ARCHITECTURE.md` if you need to **extend** something, `AI_USAGE.md` for how AI was used and where it was wrong, and `.kiro/specs/flowboard/` for the full requirements, design and task history — including the bugs found and fixed along the way.
 
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — every extension point, with the concrete steps and the files each would touch.
 - [`AI_USAGE.md`](./AI_USAGE.md) — which tools were used, where they helped, and where their output was corrected or rejected.

@@ -1,5 +1,7 @@
 # Flowboard — extension points
 
+> **TL;DR — the whole document in four lines.** Every "closed set" in the app — the levels of the tree, the view types, the priorities, the roles — lives as **data in `src/config`**, and the code reads that data instead of hard-coding the options. So extending any of them means editing one declaration rather than hunting through `switch` statements. **Eight such seams** are documented below, each with the exact steps and a list of what deliberately does **not** change; two worked examples at the end trace a second workspace and a calendar view. The rule of thumb: **if you are writing a `switch` over a domain concept outside `src/config`, a seam already exists and you have missed it.** The last section is the honest counterweight — the places that are genuinely _not_ extensible.
+
 Every closed set in this app is a declaration in `src/config`, and the logic that consumes one reads the declaration rather than restating it. That is what makes the claims below changes to _data_ rather than refactors.
 
 Each section names the seam, the files involved, and the concrete steps. Two worked examples at the end trace what a second workspace and a new view type would actually touch.
@@ -9,6 +11,8 @@ Each section names the seam, the files involved, and the concrete steps. Two wor
 ---
 
 ## 1. Container hierarchy — `CONTAINER_REGISTRY`
+
+> **TL;DR** — The shape of the tree (workspace → space → folder → list) is **one record in one file**, not logic scattered across validation, the sidebar and the drag handler. Adding a level is **three edits in that single file**; validation, the tree renderer, the create menu and the drop-target check all keep working untouched, because each one _asks_ the registry rather than comparing type names. A test drives the whole thing through a made-up container type, so a hard-coded `"folder"` hiding anywhere would fail the build.
 
 **File:** `src/config/containers.ts`
 
@@ -56,6 +60,8 @@ The helpers all take an optional registry argument for exactly that reason; they
 
 ## 2. Views — `VIEW_REGISTRY`
 
+> **TL;DR** — Board and List are entries in two paired records: one in config holding the label and icon, one in the View layer holding the component. **Adding a view is one entry in each, plus writing the component.** They sit in separate files deliberately — config is not allowed to import the View layer, and the boundary lint enforces that. Because both records are keyed by the same list of ids, adding an id and forgetting one of them is a **compile error** rather than a blank screen at runtime.
+
 **Files:** `src/config/views.ts` (description) and `src/views/viewComponents.ts` (component)
 
 ```ts
@@ -86,6 +92,8 @@ See the worked example at the end for what a calendar view touches in practice.
 ---
 
 ## 3. Enumerations — priorities and status categories
+
+> **TL;DR** — The five priorities and the status categories are each one record carrying everything any screen could need: label, icon, sort rank, and the **complete** CSS class strings. That is why sorting by priority needs no custom comparator, and why a priority looks identical on a card, a table row and in the drawer. **Adding a priority is one entry plus a colour token**; adding a status _category_ also makes the build stop until you have deliberately reconsidered the minimum number of statuses a list must have. The default set every new list receives is _derived_ from the category table rather than written out again, so "the default three" has exactly one definition.
 
 **Files:** `src/config/priorities.ts`, `src/config/statusCategories.ts`
 
@@ -140,6 +148,8 @@ Exactly one category may be `isTerminal`; `TERMINAL_STATUS_CATEGORY` is derived 
 
 ## 4. Role capabilities — `ROLE_CAPABILITIES`
 
+> **TL;DR** — The entire authorization policy is **one table** of role → actions allowed. The permission function reads that table and contains **no role-specific `if`s at all** — even the admin "sees everything" power is just an entry in it, so what admins may bypass is configurable too. **Adding a role is a handful of one-line additions** — the table, the list of role names, a display label, and a membership in the seed. Adding a new _action_ is four edits in that same file, which is the documented price of keeping policy as data. A test proves the claim by inventing a third role and checking the outcomes without touching any production code.
+
 **File:** `src/config/capabilities.ts`
 
 The whole authorization policy, as data:
@@ -173,6 +183,8 @@ Four edits in this file: the `Capability` union, `ALL_CAPABILITIES`, `CAPABILITY
 ---
 
 ## 5. Grant resolution — one seam
+
+> **TL;DR** — Sharing answers "who has access", and today "who" is always a single person. All of it resolves through **one function**, so supporting **teams** later is three additions and **no changes at any call site**. Two details are already waiting for that day: saving access never deletes rows belonging to anything other than users, and the "is this subject a user?" check is written as a lookup rather than a comparison — so widening it to teams becomes a **compile error** instead of a silent bug that quietly deletes every team permission.
 
 **File:** `src/model/permissions.ts`
 
@@ -213,6 +225,8 @@ An exhaustive-`switch` form was tried here first and was wrong: `return exhausti
 
 ## 6. Subtask depth — a constant and a function
 
+> **TL;DR** — Subtasks are capped at one level, and that cap is a **named constant plus a depth-counting function** — never an "does it have a parent?" check. **Raising it is a one-line change**, followed by checking the three places that actually draw the nesting. One thing to know: the three actions a subtask refuses (move to another list, reorder, duplicate) are consequences of the one-level rule rather than of the constant, so raising the cap means revisiting them.
+
 **Files:** `src/config/limits.ts`, `src/model/hierarchy.ts`
 
 ```ts
@@ -239,6 +253,8 @@ Also worth knowing: the three structural refusals on a subtask (move-to-list, re
 
 ## 7. Persistence — `PersistenceAdapter`
 
+> **TL;DR** — Saving sits behind a three-method interface (`load` / `save` / `clear`), and today's implementation does nothing but move strings in and out of `localStorage`. **Swapping in IndexedDB or a real server is a new file plus one argument** at store setup — not a change threaded through the app, because serialization, validation and the version check live elsewhere and any new adapter inherits them. The adapter is _handed to_ the store rather than imported inside it, which is also how tests run the entire store on an in-memory version and prove nothing is tied to the browser.
+
 **Files:** `src/adapters/persistence/types.ts`, `localStorage.ts`, `memory.ts`
 
 ```ts
@@ -264,6 +280,8 @@ That is the whole change — a **new file**, not a diff through the Controller. 
 
 ## 8. Transport — `Transport`
 
+> **TL;DR** — Every write passes through a **one-method interface** that currently fakes network latency and failures. No part of the app mentions a timeout, a retry or a failure rate. **Replacing it with real HTTP is a new file plus one argument** at store setup — and the optimistic-update-then-rollback behaviour comes along unchanged, because it never cared _what_ caused a failure. Tests set the latency to zero through that same seam, which is what keeps the suite fast and deterministic.
+
 **Files:** `src/adapters/transport/types.ts`, `simulated.ts`
 
 ```ts
@@ -286,6 +304,8 @@ Tests set `minLatencyMs = maxLatencyMs = 0` through the same seam, which is what
 ---
 
 ## Worked example — adding a second workspace
+
+> **TL;DR** — Already supported everywhere it matters: every record is tagged with the workspace it belongs to, every query takes the workspace as an argument, a user's role is per-workspace rather than global, and a test already runs a **two-workspace fixture** proving no query leaks across the boundary. **What is actually missing is data and a dropdown** — seed a second workspace, add a switcher to the top bar. The guard that makes that switcher safe (refusing a workspace you are not a member of) already exists and is already tested.
 
 The model, the scoping and the tests already support this; what is missing is data and chrome. Nothing below is a signature change.
 
@@ -314,6 +334,8 @@ The one thing to decide rather than copy: what happens to `selectedListId` when 
 
 ## Worked example — adding a calendar view
 
+> **TL;DR** — **Two existing files edited, plus the new component.** The view switcher, the navigation state and the app shell all need no change at all, because each reads the registry rather than listing the options itself. The data side probably needs nothing new either: tasks already arrive permission-filtered and carrying due dates, so only "group these by day" would be a new query — and it would take the same shape as the existing ones rather than a new one.
+
 **Files touched: two.**
 
 | Step | File                                  | Change                                                                                                 |
@@ -333,6 +355,8 @@ If the view should only appear above a certain width, `ViewMeta` already carries
 ---
 
 ## Where the seams are _not_
+
+> **TL;DR** — The honest counterweight to everything above: **five real limits, not extension points.** The important one — **`localStorage` is not a security boundary**, so the permissions here are a UI and domain model, and a real deployment needs this same engine running server-side (which it can, by design). The others: access is set one container at a time with no bulk apply and no audit view; permissions attach to containers and never to individual tasks; status sets are modelled but have no editor; and the config registries do nothing whatsoever for **layout** bugs — the `ScrollShadow` story at the end is the cautionary example of a component that was correct for three callers and broken for a fourth.
 
 Honesty is more useful here than a complete-sounding list. These are real limits, not extension points:
 
